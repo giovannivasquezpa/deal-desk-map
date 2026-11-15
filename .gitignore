@@ -1,0 +1,3 @@
+*.json
+!vault.json
+__pycache__/

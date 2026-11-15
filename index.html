@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="map-build" content="2026-11-15.1">
+<title>Deal Desk · Inventory Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#14213d;--gold:#c9a227;--cream:#f7f3ea;
+  --bg:#ffffff;--fg:#14213d;--muted:#5b6475;--line:#e3e1da;--card:#ffffff;--chip:#f1efe8;
+  --active:#c9a227;--soon:#2f80ed;--off:#8e44ad;--closed:#9aa0a6;--pending:#e67e22;
+  --shadow:0 8px 30px rgba(20,33,61,.18);
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1524;--fg:#eef0f5;--muted:#a3abbb;--line:#273049;--card:#161e31;--chip:#1f2940;--shadow:0 8px 30px rgba(0,0,0,.5)}
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.45 Inter,-apple-system,BlinkMacSystemFont,sans-serif}
+button,input{font:inherit;color:inherit}
+#map{position:fixed;inset:0}
+.top{position:fixed;z-index:1000;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 10px) 10px 0;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.bar{display:flex;gap:8px;pointer-events:auto}
+.brand{display:flex;align-items:center;gap:8px;background:var(--navy);color:#fff;border-radius:12px;padding:0 12px;font-weight:700;white-space:nowrap;box-shadow:var(--shadow)}
+.brand b{color:var(--gold)}
+.search{flex:1;min-width:0;display:flex;align-items:center;background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:0 10px}
+.search input{border:0;outline:0;background:transparent;width:100%;padding:11px 4px;font-size:16px}
+.chips{display:flex;gap:6px;overflow-x:auto;pointer-events:auto;padding-bottom:2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{border:0;border-radius:999px;padding:7px 12px;background:var(--card);box-shadow:var(--shadow);white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500}
+.chip[aria-pressed="true"]{background:var(--navy);color:#fff}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.ctl{position:fixed;z-index:1000;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);display:flex;flex-direction:column;gap:8px}
+.ctl button{width:44px;height:44px;border-radius:12px;border:0;background:var(--card);box-shadow:var(--shadow);cursor:pointer;font-weight:700;font-size:12px}
+.ctl button[aria-pressed="true"]{background:var(--navy);color:#fff}
+.count{position:fixed;z-index:999;left:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);background:var(--card);box-shadow:var(--shadow);border-radius:10px;padding:6px 10px;font-size:12px;color:var(--muted)}
+.leaflet-control-attribution{font-size:9px}
+.pin{border-radius:50%;border:2.5px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.45)}
+.lbl{background:rgba(20,33,61,.88);color:#fff;border:0;border-radius:6px;padding:2px 6px;font-weight:600;font-size:11px;box-shadow:none}
+.lbl:before{display:none}
+/* Bottom sheet */
+.sheet{position:fixed;z-index:1100;left:0;right:0;bottom:0;max-height:56vh;overflow:auto;background:var(--card);border-radius:18px 18px 0 0;box-shadow:var(--shadow);transform:translateY(105%);transition:transform .22s ease;padding:8px 16px calc(env(safe-area-inset-bottom,0px) + 18px)}
+.sheet.open{transform:none}
+@media (min-width:860px){.sheet{left:auto;right:12px;top:auto;bottom:12px;width:420px;border-radius:16px;max-height:calc(100vh - 120px)}}
+.grab{width:42px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
+.sheet h2{margin:0 0 2px;font-size:18px;line-height:1.25}
+.sub{color:var(--muted);margin-bottom:8px}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.badge{border-radius:999px;padding:3px 9px;font-size:12px;font-weight:600;background:var(--chip)}
+.price{font-size:22px;font-weight:700;margin:4px 0}
+.grid{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;margin:10px 0;font-size:13px}
+.grid dt{color:var(--muted)}
+.grid dd{margin:0;word-break:break-word}
+.hl{margin:8px 0 6px;padding-left:18px}
+.hl li{margin:3px 0}
+.sec{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 4px;font-weight:700}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:10px;padding:9px 12px;background:var(--chip);color:var(--fg);text-decoration:none;font-weight:600;font-size:13px;border:0;cursor:pointer}
+.btn.primary{background:var(--navy);color:#fff}
+.close{position:absolute;right:10px;top:8px;border:0;background:var(--chip);border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1}
+.owner{background:var(--chip);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:13px}
+.note{color:var(--muted);font-size:12px}
+.multi a{display:block;padding:10px;border-radius:10px;background:var(--chip);margin:6px 0;color:var(--fg);text-decoration:none}
+/* Lock screen */
+.lock{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#14213d,#0b1222);padding:20px}
+.lock form{background:var(--cream);color:var(--navy);border-radius:18px;padding:26px 22px;width:100%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.lock h1{margin:0 0 4px;font-size:20px}
+.lock p{margin:0 0 16px;color:#5b6475}
+.lock input[type=password]{width:100%;padding:12px;border-radius:10px;border:1px solid #d6d1c4;font-size:16px;background:#fff;color:#14213d}
+.lock label{display:flex;gap:8px;align-items:center;margin:12px 0;font-size:13px}
+.lock button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--navy);color:#fff;font-weight:700;cursor:pointer}
+.err{color:#c0392b;font-size:13px;min-height:18px;margin-top:8px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="lock" id="lock">
+  <form id="lockform" autocomplete="off">
+    <h1>Deal Desk</h1>
+    <p>Inventory map. Enter the map passphrase.</p>
+    <input type="password" id="pass" placeholder="Passphrase" autocomplete="current-password" required>
+    <label><input type="checkbox" id="remember" checked> Remember on this device</label>
+    <button type="submit" id="unlock">Open map</button>
+    <div class="err" id="err" role="alert"></div>
+  </form>
+</div>
+
+<div id="map" aria-label="Inventory map"></div>
+<div class="top">
+  <div class="bar">
+    <div class="brand">Deal <b>Desk</b></div>
+    <div class="search"><input type="search" id="q" placeholder="Search address, tenant, type, broker" aria-label="Search inventory"></div>
+  </div>
+  <div class="chips" id="chips" role="group" aria-label="Filter"></div>
+</div>
+<div class="ctl">
+  <button type="button" id="b-base" title="Satellite / streets">MAP</button>
+  <button type="button" id="b-parcels" aria-pressed="true" title="Show parcel lines">LOTS</button>
+  <button type="button" id="b-fit" title="Show all">ALL</button>
+  <button type="button" id="b-me" title="My location">ME</button>
+</div>
+<div class="count" id="count"></div>
+<section class="sheet" id="sheet" aria-live="polite"></section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
+<script>
+const PARCEL_LAYER='https://gis.fdacs.gov/mapping/rest/services/GIO_Parcels_for_OAWP_Optimized/FeatureServer/0';
+const COLORS={active:'#c9a227',soon:'#2f80ed',off:'#8e44ad',pending:'#e67e22',closed:'#9aa0a6'};
+const FILTERS=[['open','Everything open'],['active','On market'],['off','Off-market'],['soon','Coming soon'],['pending','Pending'],['closed','Closed'],['all','All']];
+let DATA=null, filter='open', map, markers=[], lots=null, parcelLayer=null, satellite=true, baseSat, baseStreet, labels;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- Unlock ----------
+   vault.json: public key + private key locked with the passphrase.
+   data.enc: listings sealed with the public key. */
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function openVault(vault,pass){
+  const w=vault.privateKey, sub=crypto.subtle;
+  const base=await sub.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+  const kek=await sub.deriveKey({name:'PBKDF2',salt:b64(w.salt),iterations:w.iter,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+  const der=await sub.decrypt({name:'AES-GCM',iv:b64(w.iv)},kek,b64(w.ct));
+  return sub.importKey('pkcs8',der,{name:'RSA-OAEP',hash:'SHA-256'},false,['decrypt']);
+}
+async function openData(blob,priv){
+  const sub=crypto.subtle;
+  const raw=await sub.decrypt({name:'RSA-OAEP'},priv,b64(blob.key));
+  const dek=await sub.importKey('raw',raw,'AES-GCM',false,['decrypt']);
+  return JSON.parse(new TextDecoder().decode(await sub.decrypt({name:'AES-GCM',iv:b64(blob.iv)},dek,b64(blob.ct))));
+}
+async function unlock(pass,quiet){
+  $('err').textContent=quiet?'':'Opening…';
+  let vault,blob;
+  try{
+    const [a,b]=await Promise.all([fetch('vault.json?'+Date.now(),{cache:'no-store'}),fetch('data.enc?'+Date.now(),{cache:'no-store'})]);
+    if(!a.ok||!b.ok) throw 0; vault=await a.json(); blob=await b.json();
+  }catch(e){$('err').textContent='Could not load the map data. Check your connection and try again.';return false}
+  let priv; try{priv=await openVault(vault,pass)}catch(e){if(!quiet)$('err').textContent='Wrong passphrase.';return false}
+  try{DATA=await openData(blob,priv)}catch(e){$('err').textContent='The map data is damaged. Ask Claude to re-seal it.';return false}
+  DATA.builtAt=DATA.sealedAt;
+  try{ if($('remember').checked) localStorage.setItem('ddmap.pass',pass); else localStorage.removeItem('ddmap.pass'); }catch(_){}
+  $('lock').remove(); start(); return true;
+}
+$('lockform').addEventListener('submit',e=>{e.preventDefault();unlock($('pass').value)});
+(async()=>{let p=null;try{p=localStorage.getItem('ddmap.pass')}catch(_){} if(p&&!(await unlock(p,true))){try{localStorage.removeItem('ddmap.pass')}catch(_){}} else if(!p) $('pass').focus();})();
+
+/* ---------- Placing pins and lots (done in the browser, remembered on this device) ---------- */
+const GEOCODER='https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates';
+const FL_BOX=[24.3,31.1,-87.7,-79.8];
+function cacheGet(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(_){return null}}
+function cacheSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(_){}}
+function queryAddress(l){
+  let addr=String(l.address||'').replace(/\(.*?\)/g,' ');
+  const parts=addr.split(',').map(x=>x.trim());
+  let street=parts.find(x=>/^\d/.test(x)); if(!street) return null;
+  street=street.replace(/^(\d+)\s*[-–&]\s*\d+\b/,'$1').split(/\s+&\s+/)[0].replace(/\b(Ste|Suite|Unit)\b.*$/i,'').trim();
+  let city=String(l.city||'').replace(/\(.*?\)/g,' ');
+  const zip=(city+' '+parts.slice(1).join(' ')).match(/\b(3[234]\d{3})\b/);
+  city=city.replace(/\b\d{5}\b/g,'').trim().replace(/(,|\s)\s*(FL|Florida)\s*$/i,'').replace(/[ ,]+$/,'').trim();
+  return `${street}, ${city?city+', ':''}FL${zip?' '+zip[1]:''}`;
+}
+async function geocode(q){
+  const u=`${GEOCODER}?f=json&maxLocations=1&outFields=Score,Addr_type&countryCode=USA&SingleLine=${encodeURIComponent(q)}`;
+  const j=await (await fetch(u)).json(); const c=(j.candidates||[])[0];
+  if(!c||c.score<80) return {none:true};
+  const lat=c.location.y,lng=c.location.x;
+  if(lat<FL_BOX[0]||lat>FL_BOX[1]||lng<FL_BOX[2]||lng>FL_BOX[3]) return {none:true};
+  return {lat,lng,type:(c.attributes||{}).Addr_type||''};
+}
+async function parcelAt(lat,lng){
+  const u=`${PARCEL_LAYER}/query?geometry=${lng},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=PARCEL_ID,OWN_NAME,PHY_ADDR1,PHY_CITY,LND_SQFOOT,JV,ACT_YR_BLT,DOR_UC,SALE_PRC1,SALE_YR1&returnGeometry=true&outSR=4326&geometryPrecision=6&f=geojson`;
+  const j=await (await fetch(u)).json(); const f=(j.features||[])[0]; if(!f) return {none:true};
+  const p=f.properties||{};
+  return {geometry:f.geometry,parcelId:p.PARCEL_ID,owner:p.OWN_NAME,siteAddress:[p.PHY_ADDR1,p.PHY_CITY].filter(Boolean).join(' '),landSqft:p.LND_SQFOOT,justValue:p.JV,yearBuilt:p.ACT_YR_BLT,useCode:p.DOR_UC,lastSalePrice:p.SALE_PRC1,lastSaleYear:p.SALE_YR1};
+}
+async function pool(items,n,fn){let i=0;await Promise.all(Array.from({length:n},async()=>{while(i<items.length){const it=items[i++];try{await fn(it)}catch(_){}}}))}
+async function placeAll(){
+  // 1) coordinates from this device's memory, or look them up
+  const todo=[];
+  DATA.listings.forEach(l=>{
+    if(l.lat!=null){l.geoSource=l.geoSource||'desk';return}
+    const q=queryAddress(l); l._q=q; if(!q) return;
+    const c=cacheGet('ddmap.geo:'+q); if(c){ if(!c.none){l.lat=c.lat;l.lng=c.lng;l.geoSource=c.type} } else todo.push(l);
+  });
+  draw(true);
+  if(todo.length){
+    $('count').textContent=`Placing ${todo.length} properties on the map…`;
+    let n=0; await pool(todo,4,async l=>{const r=await geocode(l._q);cacheSet('ddmap.geo:'+l._q,r);if(!r.none){l.lat=r.lat;l.lng=r.lng;l.geoSource=r.type} if(++n%10===0) draw(false)});
+    draw(true);
+  }
+  // 2) lot outlines + county record
+  const lots=[];
+  DATA.listings.forEach(l=>{ if(l.lat==null) return; const k='ddmap.lot:'+l.lat.toFixed(6)+','+l.lng.toFixed(6); const c=cacheGet(k); if(c){if(!c.none) l.parcel=c} else lots.push([l,k]) });
+  if(lots.length){ let n=0; await pool(lots,4,async([l,k])=>{const r=await parcelAt(l.lat,l.lng);cacheSet(k,r);if(!r.none) l.parcel=r; if(++n%10===0) draw(false)}); draw(false); }
+}
+
+/* ---------- Helpers ---------- */
+function bucket(l){
+  const st=String(l.status||'active').toLowerCase(), mk=String(l.market||'').toLowerCase();
+  if(st==='closed') return 'closed';
+  if(st==='pending') return 'pending';
+  if(st==='coming soon') return 'soon';
+  if(/^off/.test(mk)||mk.includes('off-market')||mk.includes('off market')) return 'off';
+  return 'active';
+}
+function shows(l){const b=bucket(l); if(filter==='all') return true; if(filter==='open') return b!=='closed'; return b===filter;}
+function money(v){
+  if(v==null||v==='') return '';
+  if(typeof v==='number') return v>=1e6?'$'+(v/1e6).toFixed(v%1e6===0?0:2).replace(/\.?0+$/,'')+'M':'$'+v.toLocaleString('en-US');
+  return String(v);
+}
+function fullMoney(v){return typeof v==='number'?'$'+v.toLocaleString('en-US'):(v||'Price not set')}
+function title(l){return l.name&&!String(l.name).startsWith(String(l.address||'').slice(0,8))?l.name:l.address}
+function hay(l){return [l.address,l.city,l.name,l.type,l.market,l.highlights,l.listingBroker,l.contact,l.zoning,l.parcel&&l.parcel.owner].join(' ').toLowerCase()}
+
+/* ---------- Map ---------- */
+function start(){
+  map=L.map('map',{zoomControl:false,preferCanvas:false}).setView([27.6,-81.6],7);
+  baseSat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Imagery © Esri, Maxar, Earthstar Geographics'});
+  labels=L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,opacity:.9}),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19})
+  ]);
+  baseStreet=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'© Esri, HERE, Garmin, OpenStreetMap contributors'});
+  baseSat.addTo(map); labels.addTo(map);
+  L.control.zoom({position:'bottomright'}).addTo(map);
+  addParcels();
+  renderChips(); placeAll();
+  $('q').addEventListener('input',()=>draw(false));
+  $('b-base').onclick=()=>{satellite=!satellite; if(satellite){map.removeLayer(baseStreet);baseSat.addTo(map);labels.addTo(map)}else{map.removeLayer(baseSat);map.removeLayer(labels);baseStreet.addTo(map)} $('b-base').setAttribute('aria-pressed',String(!satellite));};
+  $('b-parcels').onclick=()=>{const on=$('b-parcels').getAttribute('aria-pressed')!=='true'; $('b-parcels').setAttribute('aria-pressed',String(on)); if(parcelLayer){on?parcelLayer.addTo(map):map.removeLayer(parcelLayer)}};
+  $('b-fit').onclick=()=>fitAll();
+  $('b-me').onclick=()=>map.locate({setView:true,maxZoom:16});
+  map.on('click',e=>{ if(!e.originalEvent._ddHandled) closeSheet(); });
+  const h=decodeURIComponent((location.hash||'').slice(1)); if(h){const l=DATA.listings.find(x=>x.id===h); if(l&&l.lat!=null) focus(l);}
+}
+
+/* Florida statewide parcel lines (FL Dept. of Revenue), drawn when zoomed in close. Tap any lot to see who owns it. */
+function addParcels(){
+  if(!window.L||!L.esri) return;
+  parcelLayer=L.esri.featureLayer({url:PARCEL_LAYER,minZoom:17,simplifyFactor:0.3,precision:6,
+    fields:['OBJECTID','PARCEL_ID','OWN_NAME','PHY_ADDR1','PHY_CITY','DOR_UC','LND_SQFOOT','JV'],
+    style:()=>({color:'#ffffff',weight:1.2,opacity:.85,fillOpacity:0.01})});
+  parcelLayer.on('click',e=>{
+    e.originalEvent._ddHandled=true;
+    const hitsHere=DATA.listings.filter(l=>l.parcel&&l.parcel.geometry&&inside(e.latlng,l.parcel.geometry)&&shows(l));
+    if(hitsHere.length){openList(hitsHere);return}
+    const p=e.layer.feature.properties||{};
+    openParcel(p,e.latlng);
+  });
+  parcelLayer.addTo(map);
+}
+function inside(ll,g){
+  const polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+  const x=ll.lng,y=ll.lat;
+  return polys.some(poly=>{let ins=false;const r=poly[0];for(let i=0,j=r.length-1;i<r.length;j=i++){const xi=r[i][0],yi=r[i][1],xj=r[j][0],yj=r[j][1];if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))ins=!ins}return ins});
+}
+function renderChips(){
+  const n=k=>DATA.listings.filter(l=>{const b=bucket(l);return k==='all'||(k==='open'?b!=='closed':b===k)}).length;
+  $('chips').innerHTML=FILTERS.map(([k,t])=>`<button class="chip" type="button" data-f="${k}" aria-pressed="${filter===k}">${COLORS[k]?`<span class="dot" style="background:${COLORS[k]}"></span>`:''}${t} <span style="opacity:.6">${n(k)}</span></button>`).join('');
+  $('chips').querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;renderChips();draw(true)});
+}
+function draw(fit){
+  markers.forEach(m=>map.removeLayer(m)); markers=[];
+  if(lots) map.removeLayer(lots);
+  const q=$('q').value.trim().toLowerCase();
+  const rows=DATA.listings.filter(l=>shows(l)&&(!q||q.split(/\s+/).every(w=>hay(l).includes(w))));
+  const placed=rows.filter(l=>l.lat!=null);
+  lots=L.geoJSON({type:'FeatureCollection',features:placed.filter(l=>l.parcel&&l.parcel.geometry).map(l=>({type:'Feature',geometry:l.parcel.geometry,properties:{id:l.id}}))},{
+    style:f=>{const l=DATA.listings.find(x=>x.id===f.properties.id);const c=COLORS[bucket(l)];return {color:c,weight:3,fillColor:c,fillOpacity:.28}},
+    onEachFeature:(f,layer)=>layer.on('click',e=>{e.originalEvent._ddHandled=true;const here=placed.filter(l=>l.parcel&&l.parcel.geometry&&inside(e.latlng,l.parcel.geometry));openList(here.length?here:[DATA.listings.find(x=>x.id===f.properties.id)])})
+  }).addTo(map);
+  // group listings that sit on the same spot so none hide under another
+  const groups={};
+  placed.forEach(l=>{const k=l.lat.toFixed(5)+','+l.lng.toFixed(5);(groups[k]=groups[k]||[]).push(l)});
+  Object.values(groups).forEach(g=>{
+    const l=g[0], c=COLORS[bucket(l)];
+    const icon=L.divIcon({className:'',html:`<div class="pin" style="width:18px;height:18px;background:${c}"></div>`,iconSize:[18,18],iconAnchor:[9,9]});
+    const m=L.marker([l.lat,l.lng],{icon,title:title(l),riseOnHover:true}).addTo(map);
+    const lab=g.length>1?`${g.length} listings`:(money(l.price)||'');
+    if(lab) m.bindTooltip(esc(lab),{permanent:true,direction:'right',offset:[10,0],className:'lbl'});
+    m.on('click',e=>{if(e.originalEvent)e.originalEvent._ddHandled=true; peek(l); openList(g)});
+    markers.push(m);
+  });
+  const un=rows.length-placed.length;
+  $('count').textContent=`${placed.length} on map${un?` · ${un} without a mappable address`:''}`;
+  if(fit) fitAll(placed);
+}
+function fitAll(list){
+  const pts=(list||DATA.listings.filter(l=>shows(l)&&l.lat!=null)).map(l=>[l.lat,l.lng]);
+  if(pts.length) map.fitBounds(pts,{padding:[60,60],maxZoom:15});
+}
+const wide=()=>window.innerWidth>=860;
+/* keep the lot visible above the info sheet (phone) or left of it (desktop) */
+function pad(){return wide()?{paddingTopLeft:[40,90],paddingBottomRight:[460,40]}:{paddingTopLeft:[30,110],paddingBottomRight:[30,Math.round(window.innerHeight*0.58)]}}
+function focus(l){
+  const bounds=l.parcel&&l.parcel.geometry?L.geoJSON(l.parcel.geometry).getBounds():L.latLng(l.lat,l.lng).toBounds(120);
+  map.fitBounds(bounds,{...pad(),maxZoom:19});
+  openCard(l);
+}
+function peek(l){ if(l.lat==null) return; const b=L.latLng(l.lat,l.lng).toBounds(60); const z=Math.max(map.getZoom(),12); map.fitBounds(b,{...pad(),maxZoom:z}); }
+
+/* ---------- Info sheet ---------- */
+function openList(list){
+  list=list.filter(Boolean);
+  if(list.length===1){openCard(list[0]);return}
+  showSheet(`<div class="grab"></div><button class="close" data-close aria-label="Close">×</button>
+    <h2>${list.length} listings here</h2><div class="multi">${list.map(l=>`<a href="#${esc(l.id)}" data-open="${esc(l.id)}"><b>${esc(title(l))}</b><br><span class="note">${esc(money(l.price)||'')} · ${esc(l.type||'')}</span></a>`).join('')}</div>`);
+}
+function row(k,v){return v==null||v===''?'':`<dt>${esc(k)}</dt><dd>${v}</dd>`}
+function linkify(s){return esc(s).replace(/([\w.+-]+@[\w-]+\.[\w.]+)/g,'<a href="mailto:$1">$1</a>').replace(/(\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b)/g,m=>`<a href="tel:${m.replace(/\D/g,'')}">${m}</a>`)}
+function openCard(l){
+  const b=bucket(l), c=COLORS[b];
+  const label={active:'On market',off:'Off-market',soon:'Coming soon',pending:'Pending',closed:'Closed'}[b];
+  const hl=Array.isArray(l.highlights)?l.highlights:String(l.highlights||'').split(/;\s+(?=[A-Z0-9$+~])/).filter(Boolean);
+  const p=l.parcel||{};
+  const gq=l.lat!=null?`${l.lat},${l.lng}`:encodeURIComponent([l.address,l.city].join(', '));
+  const addr=[l.address,l.city].filter(Boolean).join(', ');
+  const owners=(l.owners||[]).map(o=>`<div class="owner"><b>${esc(o.name)}</b>${(o.phones||[]).map(ph=>`<br>${ph.dnc?'<span class="note">DNC</span> ':''}<a href="tel:${esc(ph.n)}">${esc(String(ph.n).replace(/(\d{3})(\d{3})(\d{4})/,'($1) $2-$3'))}</a> <span class="note">${esc(ph.type||'')}</span>`).join('')}${(o.emails||[]).map(e=>`<br><a href="mailto:${esc(e)}">${esc(e)}</a>`).join('')}${o.mailing?`<br><span class="note">${esc(o.mailing)}</span>`:''}</div>`).join('');
+  showSheet(`<div class="grab"></div><button class="close" data-close aria-label="Close">×</button>
+    <h2>${esc(title(l))}</h2>
+    <div class="sub">${esc(addr)}</div>
+    <div class="price">${esc(fullMoney(l.price))}</div>
+    <div class="badges"><span class="badge" style="background:${c};color:#fff">${label}</span>${l.type?`<span class="badge">${esc(l.type)}</span>`:''}${l.matchCount!=null?`<span class="badge">${l.matchCount} buyer matches</span>`:''}</div>
+    ${hl.length?`<div class="sec">Highlights</div><ul class="hl">${hl.map(h=>`<li>${esc(h)}</li>`).join('')}</ul>`:''}
+    <div class="sec">Details</div>
+    <dl class="grid">
+      ${row('Size',esc(l.size))}${row('Zoning',esc(l.zoning))}${row('Market',esc(l.market))}
+      ${row('Commission',esc([l.commission,l.commissionNote].filter(Boolean).join(' · ')))}
+      ${row('Listing broker',l.listingBroker?linkify(l.listingBroker):'')}${row('Contact',l.contact?linkify(l.contact):'')}
+      ${row('Waiting on',esc(l.waitingOn))}${row('Note',esc(l.neighborNote))}${row('OM file',esc(l.omFile))}${row('APN',esc(l.apn))}
+    </dl>
+    ${owners?`<div class="sec">Owner contacts</div>${owners}`:''}
+    ${p.parcelId||p.owner?`<div class="sec">County record (FL Dept. of Revenue)</div><dl class="grid">${row('Parcel ID',esc(p.parcelId))}${row('Owner of record',esc(p.owner))}${row('Site address',esc(p.siteAddress))}${row('Land',p.landSqft?esc(Number(p.landSqft).toLocaleString('en-US'))+' +/- SF':'')}${row('Just value',p.justValue?'$'+Number(p.justValue).toLocaleString('en-US'):'')}${row('Year built',esc(p.yearBuilt))}${row('Last sale',p.lastSalePrice?'$'+Number(p.lastSalePrice).toLocaleString('en-US')+(p.lastSaleYear?' ('+esc(p.lastSaleYear)+')':''):'')}</dl>`:''}
+    ${l.lat==null?`<p class="note">This one isn't on the map: its address couldn't be placed. Give it a full street address in the Deal Desk.</p>`:!/PointAddress|Subaddress|desk/.test(l.geoSource||'')?`<p class="note">Pin placed from the street, not a rooftop match; it may be a few lots off.</p>`:''}
+    <div class="btns">
+      ${l.lat!=null?`<button class="btn primary" type="button" data-zoom="${esc(l.id)}">Zoom to lot</button>`:''}
+      <a class="btn" href="https://www.google.com/maps/search/?api=1&query=${gq}" target="_blank" rel="noopener">Google Maps</a>
+      ${l.lat!=null?`<a class="btn" href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${gq}" target="_blank" rel="noopener">Street View</a>`:''}
+      ${l.omDriveFolder?`<a class="btn" href="${esc(l.omDriveFolder)}" target="_blank" rel="noopener">OM folder</a>`:''}
+      ${l.link?`<a class="btn" href="${esc(l.link)}" target="_blank" rel="noopener">Listing page</a>`:''}
+    </div>
+    <p class="note" style="margin-top:12px">Data as of ${esc((DATA.snapshotAt||DATA.sealedAt||'').slice(0,10))}</p>`);
+  try{history.replaceState(null,'','#'+l.id)}catch(_){}
+}
+function openParcel(p,ll){
+  const gq=`${ll.lat},${ll.lng}`;
+  showSheet(`<div class="grab"></div><button class="close" data-close aria-label="Close">×</button>
+    <h2>${esc(p.PHY_ADDR1||'Parcel')}</h2><div class="sub">${esc(p.PHY_CITY||'')} · not in your inventory</div>
+    <dl class="grid">${row('Owner of record',esc(p.OWN_NAME))}${row('Parcel ID',esc(p.PARCEL_ID))}${row('Land',p.LND_SQFOOT?Number(p.LND_SQFOOT).toLocaleString('en-US')+' +/- SF':'')}${row('Just value',p.JV?'$'+Number(p.JV).toLocaleString('en-US'):'')}${row('Use code',esc(p.DOR_UC))}</dl>
+    <div class="btns"><a class="btn" href="https://www.google.com/maps/search/?api=1&query=${gq}" target="_blank" rel="noopener">Google Maps</a><a class="btn" href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${gq}" target="_blank" rel="noopener">Street View</a></div>`);
+}
+function showSheet(html){const s=$('sheet');s.innerHTML=html;s.classList.add('open');s.scrollTop=0}
+function closeSheet(){$('sheet').classList.remove('open');try{history.replaceState(null,'',location.pathname)}catch(_){}}
+$('sheet').addEventListener('click',e=>{
+  if(e.target.closest('[data-close]')){closeSheet();return}
+  const o=e.target.closest('[data-open]'); if(o){e.preventDefault();const l=DATA.listings.find(x=>x.id===o.dataset.open);if(l)openCard(l);return}
+  const z=e.target.closest('[data-zoom]'); if(z){const l=DATA.listings.find(x=>x.id===z.dataset.zoom);if(l)focus(l)}
+});
+</script>
+</body>
+</html>
