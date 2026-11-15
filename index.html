@@ -173,10 +173,10 @@ async function geocode(q){
   return {lat,lng,type:(c.attributes||{}).Addr_type||''};
 }
 async function parcelAt(lat,lng){
-  const u=`${PARCEL_LAYER}/query?geometry=${lng},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=PARCEL_ID,OWN_NAME,PHY_ADDR1,PHY_CITY,LND_SQFOOT,JV,ACT_YR_BLT,DOR_UC,SALE_PRC1,SALE_YR1&returnGeometry=true&outSR=4326&geometryPrecision=6&f=geojson`;
+  const u=`${PARCEL_LAYER}/query?geometry=${lng},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=PARCEL_ID,OWN_NAME,DOR_UC&returnGeometry=true&outSR=4326&geometryPrecision=6&f=geojson`;
   const j=await (await fetch(u)).json(); const f=(j.features||[])[0]; if(!f) return {none:true};
   const p=f.properties||{};
-  return {geometry:f.geometry,parcelId:p.PARCEL_ID,owner:p.OWN_NAME,siteAddress:[p.PHY_ADDR1,p.PHY_CITY].filter(Boolean).join(' '),landSqft:p.LND_SQFOOT,justValue:p.JV,yearBuilt:p.ACT_YR_BLT,useCode:p.DOR_UC,lastSalePrice:p.SALE_PRC1,lastSaleYear:p.SALE_YR1};
+  return {geometry:f.geometry,parcelId:p.PARCEL_ID,owner:p.OWN_NAME,useCode:p.DOR_UC};
 }
 async function pool(items,n,fn){let i=0;await Promise.all(Array.from({length:n},async()=>{while(i<items.length){const it=items[i++];try{await fn(it)}catch(_){}}}))}
 async function placeAll(){
@@ -244,7 +244,7 @@ function start(){
 function addParcels(){
   if(!window.L||!L.esri) return;
   parcelLayer=L.esri.featureLayer({url:PARCEL_LAYER,minZoom:17,simplifyFactor:0.3,precision:6,
-    fields:['OBJECTID','PARCEL_ID','OWN_NAME','PHY_ADDR1','PHY_CITY','DOR_UC','LND_SQFOOT','JV'],
+    fields:['OBJECTID','PARCEL_ID','OWN_NAME','DOR_UC'],
     style:()=>({color:'#ffffff',weight:1.2,opacity:.85,fillOpacity:0.01})});
   parcelLayer.on('click',e=>{
     e.originalEvent._ddHandled=true;
@@ -336,7 +336,7 @@ function openCard(l){
       ${row('Waiting on',esc(l.waitingOn))}${row('Note',esc(l.neighborNote))}${row('OM file',esc(l.omFile))}${row('APN',esc(l.apn))}
     </dl>
     ${owners?`<div class="sec">Owner contacts</div>${owners}`:''}
-    ${p.parcelId||p.owner?`<div class="sec">County record (FL Dept. of Revenue)</div><dl class="grid">${row('Parcel ID',esc(p.parcelId))}${row('Owner of record',esc(p.owner))}${row('Site address',esc(p.siteAddress))}${row('Land',p.landSqft?esc(Number(p.landSqft).toLocaleString('en-US'))+' +/- SF':'')}${row('Just value',p.justValue?'$'+Number(p.justValue).toLocaleString('en-US'):'')}${row('Year built',esc(p.yearBuilt))}${row('Last sale',p.lastSalePrice?'$'+Number(p.lastSalePrice).toLocaleString('en-US')+(p.lastSaleYear?' ('+esc(p.lastSaleYear)+')':''):'')}</dl>`:''}
+    ${p.parcelId||p.owner?`<div class="sec">County record (FL Dept. of Revenue)</div><dl class="grid">${row('Parcel ID',esc(p.parcelId))}${row('Owner of record',esc(p.owner))}${row('Use code',esc(p.useCode))}${row('Land',p.landSqft?esc(Number(p.landSqft).toLocaleString('en-US'))+' +/- SF':'')}${row('Just value',p.justValue?'$'+Number(p.justValue).toLocaleString('en-US'):'')}${row('Year built',esc(p.yearBuilt))}${row('Last sale',p.lastSalePrice?'$'+Number(p.lastSalePrice).toLocaleString('en-US')+(p.lastSaleYear?' ('+esc(p.lastSaleYear)+')':''):'')}</dl>`:''}
     ${l.lat==null?`<p class="note">This one isn't on the map: its address couldn't be placed. Give it a full street address in the Deal Desk.</p>`:!/PointAddress|Subaddress|desk/.test(l.geoSource||'')?`<p class="note">Pin placed from the street, not a rooftop match; it may be a few lots off.</p>`:''}
     <div class="btns">
       ${l.lat!=null?`<button class="btn primary" type="button" data-zoom="${esc(l.id)}">Zoom to lot</button>`:''}
@@ -351,8 +351,8 @@ function openCard(l){
 function openParcel(p,ll){
   const gq=`${ll.lat},${ll.lng}`;
   showSheet(`<div class="grab"></div><button class="close" data-close aria-label="Close">×</button>
-    <h2>${esc(p.PHY_ADDR1||'Parcel')}</h2><div class="sub">${esc(p.PHY_CITY||'')} · not in your inventory</div>
-    <dl class="grid">${row('Owner of record',esc(p.OWN_NAME))}${row('Parcel ID',esc(p.PARCEL_ID))}${row('Land',p.LND_SQFOOT?Number(p.LND_SQFOOT).toLocaleString('en-US')+' +/- SF':'')}${row('Just value',p.JV?'$'+Number(p.JV).toLocaleString('en-US'):'')}${row('Use code',esc(p.DOR_UC))}</dl>
+    <h2>${esc(p.OWN_NAME||'Parcel')}</h2><div class="sub">Not in your inventory</div>
+    <dl class="grid">${row('Owner of record',esc(p.OWN_NAME))}${row('Parcel ID',esc(p.PARCEL_ID))}${row('Use code',esc(p.DOR_UC))}</dl>
     <div class="btns"><a class="btn" href="https://www.google.com/maps/search/?api=1&query=${gq}" target="_blank" rel="noopener">Google Maps</a><a class="btn" href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${gq}" target="_blank" rel="noopener">Street View</a></div>`);
 }
 function showSheet(html){const s=$('sheet');s.innerHTML=html;s.classList.add('open');s.scrollTop=0}
