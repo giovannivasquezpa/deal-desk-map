@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<meta name="map-build" content="2026-11-15.1">
+<meta name="map-build" content="2026-11-15.2">
 <title>Deal Desk · Inventory Map</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,6 +23,38 @@
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.45 Inter,-apple-system,BlinkMacSystemFont,sans-serif}
 button,input{font:inherit;color:inherit}
 #map{position:fixed;inset:0}
+@media (min-width:860px){#map{left:380px}}
+.side{position:fixed;z-index:1050;top:0;bottom:0;left:0;width:380px;background:var(--card);display:flex;flex-direction:column;box-shadow:var(--shadow);padding-top:env(safe-area-inset-top,0px)}
+@media (max-width:859px){.side{width:100%;transform:translateX(-102%);transition:transform .2s ease}.side.open{transform:none}}
+@media (min-width:860px){.only-phone{display:none!important}}
+.side-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 6px}
+.side-head .brand{background:none;color:var(--fg);box-shadow:none;padding:0;font-size:18px}
+.sub2{font-weight:500;color:var(--muted);font-size:13px;margin-left:4px}
+.side-tools{display:flex;gap:8px;padding:6px 14px}
+.side-tools .search{box-shadow:none;background:var(--chip)}
+.fbtn{border:0;border-radius:12px;padding:0 14px;background:var(--navy);color:#fff;font-weight:600;cursor:pointer;white-space:nowrap}
+.fcount{background:var(--gold);color:var(--navy);border-radius:999px;padding:0 6px;font-size:11px;margin-left:2px}
+.fcount:empty{display:none}
+.fpanel{padding:4px 14px 12px;border-bottom:1px solid var(--line);overflow:auto;max-height:60vh}
+.fpanel .chips{flex-wrap:wrap;overflow:visible}
+.fpanel .chip{box-shadow:none;background:var(--chip);color:var(--fg)}
+.fpanel .chip[aria-pressed="true"]{background:var(--navy);color:#fff}
+.flabel{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:10px 0 6px}
+.prow{display:flex;gap:8px;align-items:center}
+.prow input{flex:1;min-width:0;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:16px}
+.chk{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px}
+.fact{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.side-count{padding:6px 14px;font-size:12px;color:var(--muted)}
+.list{flex:1;overflow:auto;padding:0 8px 16px}
+.item{display:flex;gap:10px;align-items:flex-start;padding:10px 8px;border-radius:12px;cursor:pointer;border:0;background:none;width:100%;text-align:left}
+.item:hover,.item.sel{background:var(--chip)}
+.item .dot{margin-top:5px;flex:none}
+.item .t{font-weight:600;line-height:1.25}
+.item .m{color:var(--muted);font-size:12px;margin-top:2px}
+.item .pr{margin-left:auto;font-weight:700;white-space:nowrap;padding-left:8px}
+.item .nomap{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:0 4px;margin-left:4px}
+.listbtn{position:fixed;z-index:1000;left:10px;top:calc(env(safe-area-inset-top,0px) + 10px);border:0;border-radius:12px;padding:10px 14px;background:var(--navy);color:#fff;font-weight:700;box-shadow:var(--shadow);cursor:pointer}
+.iconbtn{border:0;border-radius:10px;padding:8px 12px;background:var(--chip);font-weight:600;cursor:pointer}
 .top{position:fixed;z-index:1000;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 10px) 10px 0;display:flex;flex-direction:column;gap:8px;pointer-events:none}
 .bar{display:flex;gap:8px;pointer-events:auto}
 .brand{display:flex;align-items:center;gap:8px;background:var(--navy);color:#fff;border-radius:12px;padding:0 12px;font-weight:700;white-space:nowrap;box-shadow:var(--shadow)}
@@ -45,7 +77,7 @@ button,input{font:inherit;color:inherit}
 /* Bottom sheet */
 .sheet{position:fixed;z-index:1100;left:0;right:0;bottom:0;max-height:56vh;overflow:auto;background:var(--card);border-radius:18px 18px 0 0;box-shadow:var(--shadow);transform:translateY(105%);transition:transform .22s ease;padding:8px 16px calc(env(safe-area-inset-bottom,0px) + 18px)}
 .sheet.open{transform:none}
-@media (min-width:860px){.sheet{left:auto;right:12px;top:auto;bottom:12px;width:420px;border-radius:16px;max-height:calc(100vh - 120px)}}
+@media (min-width:860px){.sheet{left:auto;right:12px;z-index:1100;top:auto;bottom:12px;width:420px;border-radius:16px;max-height:calc(100vh - 120px)}}
 .grab{width:42px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
 .sheet h2{margin:0 0 2px;font-size:18px;line-height:1.25}
 .sub{color:var(--muted);margin-bottom:8px}
@@ -90,13 +122,27 @@ button,input{font:inherit;color:inherit}
 </div>
 
 <div id="map" aria-label="Inventory map"></div>
-<div class="top">
-  <div class="bar">
-    <div class="brand">Deal <b>Desk</b></div>
-    <div class="search"><input type="search" id="q" placeholder="Search address, tenant, type, broker" aria-label="Search inventory"></div>
+<aside class="side" id="side" aria-label="Properties">
+  <div class="side-head">
+    <div class="brand">Deal <b>Desk</b> <span class="sub2">Inventory</span></div>
+    <button type="button" class="iconbtn only-phone" id="b-hide" aria-label="Show map">Map</button>
   </div>
-  <div class="chips" id="chips" role="group" aria-label="Filter"></div>
-</div>
+  <div class="side-tools">
+    <div class="search"><input type="search" id="q" placeholder="Search address, tenant, broker" aria-label="Search inventory"></div>
+    <button type="button" class="fbtn" id="b-filter" aria-expanded="false" aria-controls="fpanel">Filter <span class="fcount" id="fcount"></span></button>
+  </div>
+  <div class="fpanel" id="fpanel" hidden>
+    <div class="flabel">Status</div><div class="chips" id="chips" role="group" aria-label="Status"></div>
+    <div class="flabel">Property type</div><div class="chips" id="tchips" role="group" aria-label="Property type"></div>
+    <div class="flabel">Price</div>
+    <div class="prow"><input id="pmin" inputmode="numeric" placeholder="Min $"><span>to</span><input id="pmax" inputmode="numeric" placeholder="Max $"></div>
+    <label class="chk"><input type="checkbox" id="mapped"> Only properties on the map</label>
+    <div class="fact"><button type="button" class="btn" id="f-clear">Clear</button><button type="button" class="btn primary" id="f-done">Done</button></div>
+  </div>
+  <div class="side-count" id="count"></div>
+  <div class="list" id="list" role="list"></div>
+</aside>
+<button type="button" class="listbtn only-phone" id="b-list">☰ List</button>
 <div class="ctl">
   <button type="button" id="b-base" title="Satellite / streets">MAP</button>
   <button type="button" id="b-parcels" aria-pressed="true" title="Show parcel lines">LOTS</button>
@@ -208,6 +254,33 @@ function bucket(l){
   if(/^off/.test(mk)||mk.includes('off-market')||mk.includes('off market')) return 'off';
   return 'active';
 }
+const TYPES=['Net lease','Retail','Industrial','Multifamily','Office / Medical','Land / Development','Hospitality','Other'];
+let tsel=new Set();
+function cat(l){
+  const t=(String(l.type||'')+' '+String(l.name||'')).toLowerCase();
+  if(/multifamily|apartment|\bunits?\b(?!.*retail)|senior living/.test(t)) return 'Multifamily';
+  if(/industrial|warehouse|cold storage|ios\b|truck|trailer|yard|manufactur|flex/.test(t)) return 'Industrial';
+  if(/hotel|motel|hospitality|restaurant|nightclub|venue|padel/.test(t)) return 'Hospitality';
+  if(/(single-tenant|absolute|net lease|\bnn\+?\b|nnn|ground lease)/.test(t)&&!/multi-tenant|center|strip|plaza|portfolio of|outparcels/.test(t)) return 'Net lease';
+  if(/retail|shopping|center|strip|plaza|outparcel/.test(t)) return 'Retail';
+  if(/office|medical/.test(t)) return 'Office / Medical';
+  if(/land|development|site|assemblage|lot\b/.test(t)) return 'Land / Development';
+  if(/gas|car wash|dispensary|usps|post office/.test(t)) return 'Net lease';
+  return 'Other';
+}
+function priceNum(l){return typeof l.price==='number'?l.price:null}
+function parseMoney(v){v=String(v||'').toLowerCase().replace(/[$,\s]/g,'');if(!v)return null;let m=1;if(v.endsWith('m')){m=1e6;v=v.slice(0,-1)}else if(v.endsWith('k')){m=1e3;v=v.slice(0,-1)}const n=parseFloat(v);return isNaN(n)?null:n*m}
+function passes(l){
+  if(!shows(l)) return false;
+  if(tsel.size&&!tsel.has(cat(l))) return false;
+  const mn=parseMoney($('pmin').value), mx=parseMoney($('pmax').value), p=priceNum(l);
+  if((mn!=null||mx!=null)&&p==null) return false;
+  if(mn!=null&&p<mn) return false; if(mx!=null&&p>mx) return false;
+  if($('mapped').checked&&l.lat==null) return false;
+  const q=$('q').value.trim().toLowerCase();
+  return !q||q.split(/\s+/).every(w=>hay(l).includes(w));
+}
+function activeFilters(){return (filter!=='open'?1:0)+tsel.size+(($('pmin').value||$('pmax').value)?1:0)+($('mapped').checked?1:0)}
 function shows(l){const b=bucket(l); if(filter==='all') return true; if(filter==='open') return b!=='closed'; return b===filter;}
 function money(v){
   if(v==null||v==='') return '';
@@ -228,9 +301,9 @@ function start(){
   ]);
   baseStreet=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'© Esri, HERE, Garmin, OpenStreetMap contributors'});
   baseSat.addTo(map); labels.addTo(map);
-  L.control.zoom({position:'bottomright'}).addTo(map);
+  L.control.zoom({position:'topright'}).addTo(map);
   addParcels();
-  renderChips(); placeAll();
+  wireFilters(); renderChips(); placeAll();
   $('q').addEventListener('input',()=>draw(false));
   $('b-base').onclick=()=>{satellite=!satellite; if(satellite){map.removeLayer(baseStreet);baseSat.addTo(map);labels.addTo(map)}else{map.removeLayer(baseSat);map.removeLayer(labels);baseStreet.addTo(map)} $('b-base').setAttribute('aria-pressed',String(!satellite));};
   $('b-parcels').onclick=()=>{const on=$('b-parcels').getAttribute('aria-pressed')!=='true'; $('b-parcels').setAttribute('aria-pressed',String(on)); if(parcelLayer){on?parcelLayer.addTo(map):map.removeLayer(parcelLayer)}};
@@ -248,7 +321,7 @@ function addParcels(){
     style:()=>({color:'#ffffff',weight:1.2,opacity:.85,fillOpacity:0.01})});
   parcelLayer.on('click',e=>{
     e.originalEvent._ddHandled=true;
-    const hitsHere=DATA.listings.filter(l=>l.parcel&&l.parcel.geometry&&inside(e.latlng,l.parcel.geometry)&&shows(l));
+    const hitsHere=DATA.listings.filter(l=>l.parcel&&l.parcel.geometry&&inside(e.latlng,l.parcel.geometry)&&passes(l));
     if(hitsHere.length){openList(hitsHere);return}
     const p=e.layer.feature.properties||{};
     openParcel(p,e.latlng);
@@ -264,12 +337,34 @@ function renderChips(){
   const n=k=>DATA.listings.filter(l=>{const b=bucket(l);return k==='all'||(k==='open'?b!=='closed':b===k)}).length;
   $('chips').innerHTML=FILTERS.map(([k,t])=>`<button class="chip" type="button" data-f="${k}" aria-pressed="${filter===k}">${COLORS[k]?`<span class="dot" style="background:${COLORS[k]}"></span>`:''}${t} <span style="opacity:.6">${n(k)}</span></button>`).join('');
   $('chips').querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;renderChips();draw(true)});
+  const tn=t=>DATA.listings.filter(l=>shows(l)&&cat(l)===t).length;
+  $('tchips').innerHTML=TYPES.filter(t=>tn(t)).map(t=>`<button class="chip" type="button" data-t="${esc(t)}" aria-pressed="${tsel.has(t)}">${esc(t)} <span style="opacity:.6">${tn(t)}</span></button>`).join('');
+  $('tchips').querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const t=b.dataset.t;tsel.has(t)?tsel.delete(t):tsel.add(t);renderChips();draw(true)});
+  $('fcount').textContent=activeFilters()||'';
 }
+function wireFilters(){
+  const fp=$('fpanel'),fb=$('b-filter');
+  fb.onclick=()=>{const o=fp.hidden;fp.hidden=!o;fb.setAttribute('aria-expanded',String(o))};
+  $('f-done').onclick=()=>{fp.hidden=true;fb.setAttribute('aria-expanded','false')};
+  $('f-clear').onclick=()=>{filter='open';tsel.clear();$('pmin').value='';$('pmax').value='';$('mapped').checked=false;renderChips();draw(true)};
+  ['pmin','pmax'].forEach(id=>$(id).addEventListener('input',()=>{renderChips();draw(false)}));
+  $('mapped').onchange=()=>{renderChips();draw(false)};
+  $('b-list').onclick=()=>$('side').classList.add('open');
+  $('b-hide').onclick=()=>$('side').classList.remove('open');
+}
+function renderList(rows){
+  const sel=(location.hash||'').slice(1);
+  const sorted=rows.slice().sort((a,b)=>(priceNum(b)||0)-(priceNum(a)||0));
+  $('list').innerHTML=sorted.map(l=>`<button class="item${l.id===sel?' sel':''}" type="button" role="listitem" data-id="${esc(l.id)}"><span class="dot" style="background:${COLORS[bucket(l)]}"></span><span style="min-width:0"><div class="t">${esc(title(l))}${l.lat==null?'<span class="nomap">no pin</span>':''}</div><div class="m">${esc([l.city,cat(l)].filter(Boolean).join(' · '))}</div></span><span class="pr">${esc(money(l.price)||'—')}</span></button>`).join('')||'<p class="note" style="padding:12px">No properties match these filters.</p>';
+}
+$('list')&&$('list').addEventListener('click',e=>{const it=e.target.closest('[data-id]');if(!it)return;const l=DATA.listings.find(x=>x.id===it.dataset.id);if(!l)return;
+  if(!wide()) $('side').classList.remove('open');
+  if(l.lat!=null) focus(l); else openCard(l);
+  document.querySelectorAll('.item.sel').forEach(x=>x.classList.remove('sel'));it.classList.add('sel');});
 function draw(fit){
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(lots) map.removeLayer(lots);
-  const q=$('q').value.trim().toLowerCase();
-  const rows=DATA.listings.filter(l=>shows(l)&&(!q||q.split(/\s+/).every(w=>hay(l).includes(w))));
+  const rows=DATA.listings.filter(passes);
   const placed=rows.filter(l=>l.lat!=null);
   lots=L.geoJSON({type:'FeatureCollection',features:placed.filter(l=>l.parcel&&l.parcel.geometry).map(l=>({type:'Feature',geometry:l.parcel.geometry,properties:{id:l.id}}))},{
     style:f=>{const l=DATA.listings.find(x=>x.id===f.properties.id);const c=COLORS[bucket(l)];return {color:c,weight:3,fillColor:c,fillOpacity:.28}},
@@ -288,16 +383,17 @@ function draw(fit){
     markers.push(m);
   });
   const un=rows.length-placed.length;
-  $('count').textContent=`${placed.length} on map${un?` · ${un} without a mappable address`:''}`;
+  $('count').textContent=`${rows.length} properties · ${placed.length} on the map${un?` · ${un} without a pin`:''}`;
+  renderList(rows);
   if(fit) fitAll(placed);
 }
 function fitAll(list){
-  const pts=(list||DATA.listings.filter(l=>shows(l)&&l.lat!=null)).map(l=>[l.lat,l.lng]);
+  const pts=(list||DATA.listings.filter(l=>passes(l)&&l.lat!=null)).map(l=>[l.lat,l.lng]);
   if(pts.length) map.fitBounds(pts,{padding:[60,60],maxZoom:15});
 }
 const wide=()=>window.innerWidth>=860;
 /* keep the lot visible above the info sheet (phone) or left of it (desktop) */
-function pad(){return wide()?{paddingTopLeft:[40,90],paddingBottomRight:[460,40]}:{paddingTopLeft:[30,110],paddingBottomRight:[30,Math.round(window.innerHeight*0.58)]}}
+function pad(){return wide()?{paddingTopLeft:[40,40],paddingBottomRight:[460,40]}:{paddingTopLeft:[30,110],paddingBottomRight:[30,Math.round(window.innerHeight*0.58)]}}
 function focus(l){
   const bounds=l.parcel&&l.parcel.geometry?L.geoJSON(l.parcel.geometry).getBounds():L.latLng(l.lat,l.lng).toBounds(120);
   map.fitBounds(bounds,{...pad(),maxZoom:19});
