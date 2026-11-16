@@ -83,7 +83,11 @@
         try { localStorage.setItem("desk.email", email); } catch (_) {}
         b.disabled = true; say("Sending…");
         const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + "/" } });
-        b.disabled = false;
+        if (!error) {
+          /* Supabase allows one sign-in email per minute; hold the button so a second tap can't trip that */
+          let left = 60; b.textContent = `Link sent · resend in ${left}s`;
+          const t = setInterval(() => { left--; if (left <= 0) { clearInterval(t); b.disabled = false; b.textContent = "Email me a sign-in link"; } else b.textContent = `Link sent · resend in ${left}s`; }, 1000);
+        } else b.disabled = false;
         if (error) say(/rate|seconds/i.test(error.message) ? "Too many tries. Wait a minute and try again." : /signup|not allowed|not found/i.test(error.message) ? "This email doesn't have access to the desk." : error.message, true);
         else say("Check your inbox and tap the sign-in link. You can close this tab.");
       });
