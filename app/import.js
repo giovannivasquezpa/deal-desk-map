@@ -128,7 +128,19 @@
         const cols = Object.keys(data.collections || {});
         let rows = 0, removed = 0, step = 0;
         for (const c of cols) {
-          const list = data.collections[c] || [];
+          // Never touch the new agents' settings, and never overwrite or remove
+          // anything changed on this desk after the export was made.
+          const since = data.exportedAt ? new Date(data.exportedAt).getTime() : 0;
+          const curMap = new Map();
+          for (let from = 0; ; from += 1000) {
+            const { data: page, error: ce } = await sb.from("docs").select("id,updated_at").eq("collection", c).range(from, from + 999);
+            if (ce || !page) break;
+            page.forEach(x => curMap.set(x.id, new Date(x.updated_at).getTime()));
+            if (page.length < 1000) break;
+          }
+          const isProtected = id => (c === "config" && /^agent-/.test(id)) || (since && (curMap.get(id) || 0) > since);
+          let skipped = 0;
+          const list = (data.collections[c] || []).filter(r => { const p = isProtected(String(r.id)); if (p) skipped++; return !p; });
           let batch = [], bytes = 0;
           const flush = async () => {
             if (!batch.length) return;
@@ -144,10 +156,9 @@
           }
           await flush();
           if (mirror) {
-            const keep = new Set(list.map(r => String(r.id)));
-            const { data: cur, error } = await sb.from("docs").select("id").eq("collection", c);
-            if (!error) {
-              const gone = cur.map(x => x.id).filter(id => !keep.has(id));
+            const keep = new Set((data.collections[c] || []).map(r => String(r.id)));
+            {
+              const gone = [...curMap.keys()].filter(id => !keep.has(id) && !isProtected(id));
               for (let i = 0; i < gone.length; i += 200) {
                 const { error: de } = await sb.from("docs").delete().eq("collection", c).in("id", gone.slice(i, i + 200));
                 if (!de) removed += Math.min(200, gone.length - i);
@@ -155,7 +166,7 @@
             }
           }
           prog(++step, cols.length);
-          log(`  ${c}: ${list.length}`);
+          log(`  ${c}: ${list.length}${skipped ? ` (${skipped} newer here, kept)` : ""}`);
         }
         log(`Records: ${rows} saved${removed ? `, ${removed} removed` : ""}. Exported from the old desk ${new Date(data.exportedAt).toLocaleString()}.`);
       }
