@@ -286,12 +286,19 @@
       (data || []).forEach(finish);
     }, 20000);
   }
+  /* Instant AI: ask the desk-ai cloud function to answer right away. If it can't (no AI key yet, Anthropic busy),
+     the job simply stays queued for the hourly Queue Worker agent, exactly as before. */
+  function instant(id) {
+    sb.functions.invoke("desk-ai", { body: id ? { id } : {} }).catch(() => {});
+  }
+  opened.then(() => setTimeout(() => instant(null), 3000)); // on open: answer anything still waiting in line
   async function queue(kind, payload, label, signal) {
     await opened;
     const id = crypto.randomUUID();
     const { error } = await sb.from("jobs").insert({ id, kind, payload: clean(payload) });
     if (error) throw err("queue_failed", error.message);
     jobsListen();
+    if (kind === "ai") instant(id);
     return new Promise((resolve, reject) => {
       waiting.set(id, { resolve, reject, label, at: Date.now() });
       qUi();
