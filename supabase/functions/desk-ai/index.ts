@@ -23,10 +23,12 @@ const MODELS: Record<string, string> = {
 const BUCKET = "desk-files";
 // Claude scheduled tasks the desk may start instantly -> name of the Supabase secret holding that
 // task's API-trigger token (created in claude.ai/code/routines → Edit → Trigger + → API → Generate token)
-const TRIGGER_SECRETS: Record<string, string> = {
-  trig_016E2nxBnjy8SnFzGMwNu2Ws: "BOV_BUILDER_TOKEN", // BOV Builder
+// The desk names the task it wants (its own trigger id); "fire" is the API-enabled task that actually runs.
+const TRIGGER_SECRETS: Record<string, { fire: string; secret: string }> = {
+  // BOV button -> "Deal Desk BOV Builder (instant)" (the hourly chat BOV Builder stays as the backup)
+  trig_016E2nxBnjy8SnFzGMwNu2Ws: { fire: "trig_01CQ6UFTKgyGK2rvAzECVHdP", secret: "BOV_BUILDER_TOKEN" },
 };
-const triggerToken = (id: unknown) => (typeof id === "string" && TRIGGER_SECRETS[id] ? Deno.env.get(TRIGGER_SECRETS[id]) || "" : "");
+const triggerToken = (id: unknown) => (typeof id === "string" && TRIGGER_SECRETS[id] ? Deno.env.get(TRIGGER_SECRETS[id].secret) || "" : "");
 
 function reply(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } });
@@ -143,7 +145,7 @@ async function doTool(job: any, cfg: any) {
   if (server === "Claude Code Remote" && tool === "fire_trigger") {
     const token = triggerToken(args.trigger_id);
     if (!token) return null;
-    const r = await fetch(`https://api.anthropic.com/v1/claude_code/routines/${args.trigger_id}/fire`, {
+    const r = await fetch(`https://api.anthropic.com/v1/claude_code/routines/${TRIGGER_SECRETS[args.trigger_id].fire}/fire`, {
       method: "POST",
       headers: {
         Authorization: "Bearer " + token, "anthropic-beta": "experimental-cc-routine-2026-04-01",
