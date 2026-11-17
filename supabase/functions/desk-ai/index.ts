@@ -106,6 +106,14 @@ async function answer(sb: any, key: string, job: any) {
   return { result: json ? { value: parseJson(text) } : { text, truncated } };
 }
 
+// Street number + first real street word of a folder name, for finding an existing property folder.
+function folderMatch(name: string) {
+  const num = (name.match(/^\s*(\d+)/) || [])[1] || "";
+  const skip = /^(n|s|e|w|ne|nw|se|sw|north|south|east|west|st|ave|rd|blvd|dr|hwy|ln|ct|way|pl|ter|the)$/i;
+  const word = name.replace(/^\s*\d+\s*/, "").split(/[\s,-]+/).find(w => w.length > 1 && !skip.test(w)) || "";
+  return num && word ? { match1: num, match2: word.replace(/'/g, "") } : { match1: name.slice(0, 60), match2: name.slice(0, 60) };
+}
+
 // deno-lint-ignore no-explicit-any
 const asMcp = (data: any) => ({ structuredContent: data, payload: data, content: [{ type: "text", text: JSON.stringify(data) }] });
 
@@ -167,7 +175,8 @@ async function doTool(job: any, cfg: any, sbUser: any) {
     if (error || !signed?.signedUrl) throw new Error("Couldn't find that file on the desk");
     const r = await fetch(cfg.driveSaveHook, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: cfg.gmailDraftToken, parentId, folderName: String(args.folderName || "Untitled property").slice(0, 150),
+      // match1/match2 = street number + street name, so "4810 NW 74th Ave" finds "4810 NW 74TH AVE - Direct to seller"
+      body: JSON.stringify({ token: cfg.gmailDraftToken, parentId, folderName: String(args.folderName || "Untitled property").slice(0, 150), ...folderMatch(String(args.folderName || "")),
         fileName: String(args.fileName || "file.pdf").slice(0, 180), fileUrl: signed.signedUrl }),
     });
     const text = await r.text();

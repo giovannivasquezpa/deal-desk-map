@@ -3643,14 +3643,15 @@ async function ombPdf(d,photos,progress){
 }
 
 /* ---- the tab ---- */
-/* Property folder in Google Drive ("0- Deal Desk/Seller Direct/<this name>"): "<street address> - <city>".
+/* Property folder in Google Drive ("0- Deal Desk/Seller Direct/<this name>"): "<street address> - Direct to seller"
+   (Giovanni's own naming). The Drive step also reuses any folder with the same street number + street name.
    BOVs and OMs for the same property share it; reuse the name a BOV already gave the folder. */
 function dealFolderName(address,city){
   const a=String(address||"").split(",")[0].replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
   const c=String(city||"").split(",")[0].replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
   const num=(a.match(/^\d+/)||[""])[0], word=(a.toLowerCase().match(/[a-z]{3,}/g)||[]).find(w=>!/^(north|south|east|west|ave|avenue|street|road|blvd|drive|hwy|highway|lane|court)$/.test(w))||"";
   const b=num&&(S.bov||[]).find(x=>x.driveFolderName&&String(x.address||"").startsWith(num+" ")&&(!word||String(x.address).toLowerCase().includes(word)));
-  return b?b.driveFolderName:[a,c].filter(Boolean).join(" - ")||"Untitled property";
+  return b?b.driveFolderName:(a?a+" - Direct to seller":"Untitled property");
 }
 const ombFile=d=>(String(d.name||d.address||"Property").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim().slice(0,90))+" - Offering Memorandum.pdf";
 function ombRow(b){
@@ -3797,7 +3798,7 @@ async function ombBuild(id){
     if(mcp){const folderName=dealFolderName(full.address||d.address,full.city||d.city);
       mcp.callTool("Deal Desk","save_to_drive",{assetId:up.id,fileName:name,folderName,deal:"seller"}).then(r=>{
         let p=r&&(r.payload||r.structuredContent); if(!p){try{p=JSON.parse((r.content||[]).find(c=>c.type==="text").text)}catch(_){p={}}}
-        if(p&&p.webViewLink) return db.doc("ombuild/"+id).update({driveUrl:p.webViewLink,driveFolderUrl:p.folderUrl||"",driveFolderName:folderName});
+        if(p&&p.webViewLink) return db.doc("ombuild/"+id).update({driveUrl:p.webViewLink,driveFolderUrl:p.folderUrl||"",driveFolderName:p.folderName||folderName});
       }).catch(()=>{});}
     ombSet(""); OMB.open=b.wasAdded?null:id; render();
     toast("OM built. Download it or add it to the wheel.");
