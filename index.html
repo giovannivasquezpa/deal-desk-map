@@ -1,6 +1,6 @@
 <!doctype html><html><head><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="same-origin"><link rel="icon" href="data:,"><script src="/app/supabase.js"></script><script src="/app/shim.js?v=2026-11-17.4"></script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Deal Desk · Giovanni Vasquez PA</title>
-<meta name="desk-build" content="2026-11-17.cloud5">
+<meta name="desk-build" content="2026-11-17.cloud6">
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: an Apple-style operating desk. Large title, frosted sticky tab bar, an "Ask the desk" voice bar
@@ -1957,10 +1957,14 @@ $("list").addEventListener("click",async e=>{
     catch(err){dbr.disabled=false; dbr.textContent="Make unbranded copy"; toast("Couldn't open the original OM")}
     return}
   const dl=e.target.closest("[data-dl]"); if(dl){
+    /* Files the agents make live in Google Drive (BOV PDFs, clean OMs): open them there; the browser
+       can't download another site's file directly. Files stored on the desk itself still download. */
+    let ext=false; try{ext=new URL(dl.dataset.dl,location.href).origin!==location.origin}catch(_){}
+    if(ext){window.open(dl.dataset.dl,"_blank","noopener");return}
     if(!downloads) return; dl.disabled=true; const t=dl.textContent; dl.textContent="Preparing…";
     try{const res=await fetch(dl.dataset.dl); if(!res.ok) throw new Error("fetch");
       await downloads.save({filename:dl.dataset.name.replace(/[^\w .()&,-]/g,"").trim()||"OM.pdf",data:await res.blob()}); toast("OM saved")}
-    catch(err){if(!(err&&err.code==="declined")) toast("Couldn't download. Use View OM and save from there.")}
+    catch(err){if(!(err&&err.code==="declined")) toast("Couldn't download this file. Try again in a moment.")}
     finally{dl.disabled=false; dl.textContent=t}
     return}
   const b=e.target.closest("[data-act]"); if(!b||!db) return;
