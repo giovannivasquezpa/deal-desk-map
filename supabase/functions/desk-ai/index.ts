@@ -69,7 +69,11 @@ async function answer(sb: any, key: string, job: any) {
 
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    headers: {
+      "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json",
+      // keys made without a workspace must name one: Giovanni's "Default" workspace
+      "anthropic-workspace-id": Deno.env.get("ANTHROPIC_WORKSPACE_ID") || "wrkspc_01XmxjkzZwndtiFvCGXoEPbb",
+    },
     body: JSON.stringify({
       model,
       max_tokens: tier === "complex" ? 16000 : 8000,
@@ -79,7 +83,11 @@ async function answer(sb: any, key: string, job: any) {
   });
   if (r.status === 429 || r.status >= 500) return { retry: true, why: `Anthropic busy (${r.status})` };
   const out = await r.json();
-  if (!r.ok) throw new Error(out?.error?.message || `Anthropic error ${r.status}`);
+  const msg = out?.error?.message || `Anthropic error ${r.status}`;
+  // key, workspace or billing problems are the account's fault, not the job's: leave it in line
+  if (r.status === 401 || r.status === 402 || r.status === 403 ||
+      /api key|workspace|credit balance|billing|permission/i.test(msg)) return { retry: true, why: msg, account: true };
+  if (!r.ok) throw new Error(msg);
   const text = (out.content || []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("");
   const truncated = out.stop_reason === "max_tokens";
   return { result: json ? { value: parseJson(text) } : { text, truncated } };
@@ -118,7 +126,7 @@ Deno.serve(async req => {
       const a = await answer(sb, key, job);
       if ("retry" in a) {
         await sb.from("jobs").update({ status: "queued", started_at: null }).eq("id", job.id);
-        return { id: job.id, status: "queued", why: a.why };
+        return { id: job.id, status: "queued", why: a.why, account: !!(a as { account?: boolean }).account };
       }
       await sb.from("jobs").update({ status: "done", result: a.result, done_at: new Date().toISOString() }).eq("id", job.id);
       return { id: job.id, status: "done" };
