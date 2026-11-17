@@ -28,7 +28,7 @@ const TRIGGER_SECRETS: Record<string, { fire: string; secret: string }> = {
   // BOV button -> "Deal Desk BOV Builder (instant)" (the hourly chat BOV Builder stays as the backup)
   trig_016E2nxBnjy8SnFzGMwNu2Ws: { fire: "trig_01CQ6UFTKgyGK2rvAzECVHdP", secret: "BOV_BUILDER_TOKEN" },
 };
-const triggerToken = (id: unknown) => (typeof id === "string" && TRIGGER_SECRETS[id] ? Deno.env.get(TRIGGER_SECRETS[id].secret) || "" : "");
+const triggerToken = (id: unknown) => (typeof id === "string" && TRIGGER_SECRETS[id] ? (Deno.env.get(TRIGGER_SECRETS[id].secret) || "").replace(/\s+/g, "") : "");
 
 function reply(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } });

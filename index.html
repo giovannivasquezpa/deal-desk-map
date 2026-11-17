@@ -1,6 +1,6 @@
 <!doctype html><html><head><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="same-origin"><link rel="icon" href="data:,"><script src="/app/supabase.js"></script><script src="/app/shim.js?v=2026-11-17.4"></script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Deal Desk · Giovanni Vasquez PA</title>
-<meta name="desk-build" content="2026-11-17.cloud3">
+<meta name="desk-build" content="2026-11-17.cloud5">
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: an Apple-style operating desk. Large title, frosted sticky tab bar, an "Ask the desk" voice bar
@@ -3102,7 +3102,7 @@ async function bovAnswer(id,btn){
 
 ${qa}
 ${files.length?"\nDocuments he attached (read them):\n"+fileLines+"\n":""}
-They are also saved on the record as answers / answerFiles. If you still can't support a value after this, set status "needs" again and write a "questions" list on the record: 2-6 short plain questions, each {q, help, file}, asking only for what is still missing, so the Deal Desk can ask him right on the card. Deliver it ONLY as the Synergy BOV PDF built with the bov-kit stored in the Deal Desk (Artifact read, paths bov-kit/README.md, bov-kit/build_bov.py, bov-kit/fonts.css, bov-kit/sample.json) and save pdfUrl on the record. Never publish a BOV as an artifact page or a doc.`});
+They are also saved on the record as answers / answerFiles. If you still can't support a value after this, set status "needs" again and write a "questions" list on the record: 2-6 short plain questions, each {q, help, file}, asking only for what is still missing, so the Deal Desk can ask him right on the card. Deliver it ONLY as the Synergy BOV PDF built with the bov-kit (where to find it: agent-db-rules rule 4) and save pdfUrl on the record. Never publish a BOV as an artifact page or a doc.`});
         await db.doc("bov/"+id).update({kickedAt:new Date().toISOString()});}catch(e){}
     }
     delete BOV.ans[id]; delete BOV.files[id]; delete BOV.est[id];
@@ -3222,7 +3222,9 @@ async function bovStart(seed,btn){
   if(btn) btn.disabled=true;
   try{
     BOV.busy="Saving the request…"; BOV.form=null; render();
-    await db.doc("bov/"+id).set(rec);
+    /* Same address already has a request (answers, files, an earlier PDF): add to it, never replace it. */
+    let had=false; try{had=(await db.doc("bov/"+id).get()).exists}catch(_){}
+    if(had) await db.doc("bov/"+id).update(rec); else await db.doc("bov/"+id).set(rec);
     if(mcp){
       BOV.busy="Pulling DealMachine data for "+addr+"…"; render();
       try{
@@ -3236,7 +3238,7 @@ async function bovStart(seed,btn){
         await db.doc("bov/"+id).update(up);
       }catch(e){try{await db.doc("bov/"+id).update({dmNote:e&&e.code==="not_granted"?"DealMachine not allowed for this page yet":"DealMachine lookup didn't go through; the BOV Builder will retry"})}catch(_){}}
       BOV.busy="Starting the BOV Builder…"; render();
-      try{await mcp.callTool("Claude Code Remote","fire_trigger",{trigger_id:BOV_TRIGGER,text:"New BOV request from the BOV tab: bov/"+id+" ("+addr+"). Start with this one. Deliver it ONLY as the Synergy BOV PDF built with the bov-kit stored in the Deal Desk (Artifact read, paths bov-kit/README.md, bov-kit/build_bov.py, bov-kit/fonts.css, bov-kit/sample.json) and save pdfUrl on the record. Never publish a BOV as an artifact page or a doc."});
+      try{await mcp.callTool("Claude Code Remote","fire_trigger",{trigger_id:BOV_TRIGGER,text:"New BOV request from the BOV tab: bov/"+id+" ("+addr+"). Start with this one. Deliver it ONLY as the Synergy BOV PDF built with the bov-kit (where to find it: agent-db-rules rule 4) and save pdfUrl on the record. Never publish a BOV as an artifact page or a doc."});
         await db.doc("bov/"+id).update({kickedAt:new Date().toISOString()});}
       catch(e){}
     }
