@@ -8,6 +8,7 @@
 // - Tool jobs it can do instantly: Gmail create_draft (through the Make webhook in config/desk-tools)
 //   DealMachine dealmachine_enrich_address (secret DEALMACHINE_API_KEY), and starting a Claude
 //   scheduled task through its API trigger (fire_trigger; token per task in TRIGGER_SECRETS below).
+//   Also "Deal Desk" save_to_drive: copies a desk file into the property's Google Drive folder (Make webhook).
 //   Everything else is left for the Queue Worker.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -109,7 +110,7 @@ async function answer(sb: any, key: string, job: any) {
 const asMcp = (data: any) => ({ structuredContent: data, payload: data, content: [{ type: "text", text: JSON.stringify(data) }] });
 
 // deno-lint-ignore no-explicit-any
-async function doTool(job: any, cfg: any) {
+async function doTool(job: any, cfg: any, sbUser: any) {
   const { server, tool, args = {} } = job.payload || {};
   if (server === "Gmail" && tool === "create_draft") {
     if (!cfg.gmailDraftHook) return { retry: true, why: "Gmail webhook not set up" };
@@ -157,6 +158,23 @@ async function doTool(job: any, cfg: any) {
     if (!r.ok || !d) return { retry: true, why: `Couldn't start the agent (${r.status}: ${JSON.stringify(d || {}).slice(0, 160)})` };
     return { result: asMcp(d) };
   }
+  if (server === "Deal Desk" && tool === "save_to_drive") {
+    // Save a desk file (e.g. an OM Builder OM) into "0- Deal Desk/<Seller Direct | 0-Outside Agents properties>/<folderName>"
+    if (!cfg.driveSaveHook) return { retry: true, why: "Drive save not set up" };
+    const parentId = args.deal === "broker" ? cfg.brokerListedFolderId : cfg.sellerDirectFolderId;
+    const path = "_blob/" + String(args.assetId || "");
+    const { data: signed, error } = await sbUser.storage.from(BUCKET).createSignedUrl(path, 900);
+    if (error || !signed?.signedUrl) throw new Error("Couldn't find that file on the desk");
+    const r = await fetch(cfg.driveSaveHook, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: cfg.gmailDraftToken, parentId, folderName: String(args.folderName || "Untitled property").slice(0, 150),
+        fileName: String(args.fileName || "file.pdf").slice(0, 180), fileUrl: signed.signedUrl }),
+    });
+    const text = await r.text();
+    let d; try { d = JSON.parse(text); } catch (_) { d = null; }
+    if (!r.ok || !d || !d.fileId) return { retry: true, why: `Drive save didn't go through (${r.status}: ${text.slice(0, 120)})` };
+    return { result: asMcp(d) };
+  }
   return null; // not something we can do here
 }
 
@@ -184,7 +202,8 @@ Deno.serve(async req => {
   const canDo = (j: any) => j.kind === "ai" ? !!key
     : j.kind === "tool" && ((j.payload?.server === "Gmail" && j.payload?.tool === "create_draft" && !!cfg.gmailDraftHook) ||
         (j.payload?.server === "Deal machine" && j.payload?.tool === "dealmachine_enrich_address" && !!Deno.env.get("DEALMACHINE_API_KEY")) ||
-        (j.payload?.server === "Claude Code Remote" && j.payload?.tool === "fire_trigger" && !!triggerToken(j.payload?.args?.trigger_id)));
+        (j.payload?.server === "Claude Code Remote" && j.payload?.tool === "fire_trigger" && !!triggerToken(j.payload?.args?.trigger_id)) ||
+        (j.payload?.server === "Deal Desk" && j.payload?.tool === "save_to_drive" && !!cfg.driveSaveHook));
 
   // pick the waiting jobs we can handle, then claim them: queued -> working, so the Queue Worker skips them
   let pick = sb.from("jobs").select("id,kind,payload").eq("status", "queued");
@@ -197,7 +216,7 @@ Deno.serve(async req => {
 
   const done = await Promise.all((jobs || []).map(async (job: { id: string; kind: string; payload: unknown }) => {
     try {
-      const a = job.kind === "ai" ? await answer(sb, key, job) : await doTool(job, cfg);
+      const a = job.kind === "ai" ? await answer(sb, key, job) : await doTool(job, cfg, sb);
       if (!a) {
         await sb.from("jobs").update({ status: "queued", started_at: null }).eq("id", job.id);
         return { id: job.id, status: "queued", why: "left for the Queue Worker" };
