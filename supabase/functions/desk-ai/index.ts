@@ -5,6 +5,9 @@
 // - POST {id} answers one job; POST {} answers every AI job still waiting (up to 8).
 // - No ANTHROPIC_API_KEY secret, or Anthropic busy/down -> the job stays queued and the
 //   hourly Queue Worker still picks it up, so nothing is ever lost.
+// - Tool jobs it can do instantly: Gmail create_draft (through the Make webhook in config/desk-tools)
+//   and DealMachine dealmachine_enrich_address (secret DEALMACHINE_API_KEY). Everything else
+//   (e.g. firing the BOV Builder agent) is left for the Queue Worker.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS = {
@@ -93,6 +96,41 @@ async function answer(sb: any, key: string, job: any) {
   return { result: json ? { value: parseJson(text) } : { text, truncated } };
 }
 
+// deno-lint-ignore no-explicit-any
+const asMcp = (data: any) => ({ structuredContent: data, payload: data, content: [{ type: "text", text: JSON.stringify(data) }] });
+
+// deno-lint-ignore no-explicit-any
+async function doTool(job: any, cfg: any) {
+  const { server, tool, args = {} } = job.payload || {};
+  if (server === "Gmail" && tool === "create_draft") {
+    if (!cfg.gmailDraftHook) return { retry: true, why: "Gmail webhook not set up" };
+    const to = Array.isArray(args.to) ? args.to : [args.to].filter(Boolean);
+    const cc = Array.isArray(args.cc) ? args.cc : args.cc ? [args.cc] : [];
+    const r = await fetch(cfg.gmailDraftHook, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: cfg.gmailDraftToken, to, cc, subject: String(args.subject || ""), body: String(args.body || ""), html: !!args.html }),
+    });
+    const text = await r.text();
+    let d; try { d = JSON.parse(text); } catch (_) { d = null; }
+    if (!r.ok || !d || !d.id) return { retry: true, why: `Gmail draft didn't go through (${r.status}: ${text.slice(0, 120)})` };
+    return { result: asMcp(d) };
+  }
+  if (server === "Deal machine" && tool === "dealmachine_enrich_address") {
+    const key = Deno.env.get("DEALMACHINE_API_KEY");
+    if (!key) return { retry: true, why: "No DealMachine key yet" };
+    const body = { data: [{ full_address: String(args.full_address || "") }], contact_audience: args.contact_audience || "owners" };
+    const r = await fetch("https://api.v2.dealmachine.com/v1/enrichment/address", {
+      method: "POST", headers: { Authorization: "Bearer " + key, "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => null);
+    if (r.status === 429 || r.status >= 500 || r.status === 401 || r.status === 402 || r.status === 403 || !d)
+      return { retry: true, why: `DealMachine ${r.status}` };
+    if (!r.ok) throw new Error(d?.error?.message || d?.message || `DealMachine error ${r.status}`);
+    return { result: asMcp(d) };
+  }
+  return null; // not something we can do here
+}
+
 Deno.serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: { ...CORS,
     "Access-Control-Allow-Headers": req.headers.get("Access-Control-Request-Headers") || CORS["Access-Control-Allow-Headers"],
@@ -100,8 +138,7 @@ Deno.serve(async req => {
   if (req.method !== "POST") return reply({ error: "POST only" }, 405);
   const auth = req.headers.get("Authorization") || "";
   if (!auth.startsWith("Bearer ")) return reply({ error: "Sign in first" }, 401);
-  const key = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!key) return reply({ error: "no_key", note: "Jobs stay queued for the hourly Queue Worker" }, 503);
+  const key = Deno.env.get("ANTHROPIC_API_KEY") || "";
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: auth } },
@@ -109,21 +146,32 @@ Deno.serve(async req => {
   });
   const body = await req.json().catch(() => ({}));
   // a run that died mid-way (timeout) leaves a job on "working": put it back in line after 10 minutes
+  // (AI jobs only; tool jobs on "working" may be the Queue Worker's)
   if (!body.id) await sb.from("jobs").update({ status: "queued", started_at: null })
     .eq("kind", "ai").eq("status", "working").lt("started_at", new Date(Date.now() - 600000).toISOString());
 
-  // claim the job(s): queued -> working, so the Queue Worker and other calls skip them
-  let q = sb.from("jobs").update({ status: "working", started_at: new Date().toISOString() })
-    .eq("kind", "ai").eq("status", "queued");
-  q = body.id ? q.eq("id", body.id) : q.in("id",
-    ((await sb.from("jobs").select("id").eq("kind", "ai").eq("status", "queued").order("created_at").limit(8)).data || [])
-      .map((j: { id: string }) => j.id));
-  const { data: jobs, error } = await q.select("id,payload");
+  const cfg = ((await sb.from("docs").select("data").eq("collection", "config").eq("id", "desk-tools").maybeSingle()).data || {}).data || {};
+  // deno-lint-ignore no-explicit-any
+  const canDo = (j: any) => j.kind === "ai" ? !!key
+    : j.kind === "tool" && ((j.payload?.server === "Gmail" && j.payload?.tool === "create_draft" && !!cfg.gmailDraftHook) ||
+        (j.payload?.server === "Deal machine" && j.payload?.tool === "dealmachine_enrich_address" && !!Deno.env.get("DEALMACHINE_API_KEY")));
+
+  // pick the waiting jobs we can handle, then claim them: queued -> working, so the Queue Worker skips them
+  let pick = sb.from("jobs").select("id,kind,payload").eq("status", "queued");
+  pick = body.id ? pick.eq("id", body.id) : pick.order("created_at").limit(12);
+  const ids = ((await pick).data || []).filter(canDo).map((j: { id: string }) => j.id);
+  if (!ids.length) return reply({ jobs: [], note: key ? undefined : "no_key" });
+  const { data: jobs, error } = await sb.from("jobs").update({ status: "working", started_at: new Date().toISOString() })
+    .in("id", ids).eq("status", "queued").select("id,kind,payload");
   if (error) return reply({ error: error.message }, 403);
 
-  const done = await Promise.all((jobs || []).map(async (job: { id: string; payload: unknown }) => {
+  const done = await Promise.all((jobs || []).map(async (job: { id: string; kind: string; payload: unknown }) => {
     try {
-      const a = await answer(sb, key, job);
+      const a = job.kind === "ai" ? await answer(sb, key, job) : await doTool(job, cfg);
+      if (!a) {
+        await sb.from("jobs").update({ status: "queued", started_at: null }).eq("id", job.id);
+        return { id: job.id, status: "queued", why: "left for the Queue Worker" };
+      }
       if ("retry" in a) {
         await sb.from("jobs").update({ status: "queued", started_at: null }).eq("id", job.id);
         return { id: job.id, status: "queued", why: a.why, account: !!(a as { account?: boolean }).account };

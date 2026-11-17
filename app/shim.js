@@ -298,7 +298,7 @@
     const { error } = await sb.from("jobs").insert({ id, kind, payload: clean(payload) });
     if (error) throw err("queue_failed", error.message);
     jobsListen();
-    if (kind === "ai") instant(id);
+    if (kind === "ai" || kind === "tool") instant(id);
     return new Promise((resolve, reject) => {
       waiting.set(id, { resolve, reject, label, at: Date.now() });
       qUi();
