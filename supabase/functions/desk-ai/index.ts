@@ -6,8 +6,9 @@
 // - No ANTHROPIC_API_KEY secret, or Anthropic busy/down -> the job stays queued and the
 //   hourly Queue Worker still picks it up, so nothing is ever lost.
 // - Tool jobs it can do instantly: Gmail create_draft (through the Make webhook in config/desk-tools)
-//   and DealMachine dealmachine_enrich_address (secret DEALMACHINE_API_KEY). Everything else
-//   (e.g. firing the BOV Builder agent) is left for the Queue Worker.
+//   DealMachine dealmachine_enrich_address (secret DEALMACHINE_API_KEY), and starting a Claude
+//   scheduled task through its API trigger (fire_trigger; token per task in TRIGGER_SECRETS below).
+//   Everything else is left for the Queue Worker.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS = {
@@ -20,6 +21,12 @@ const MODELS: Record<string, string> = {
   default: "claude-haiku-5-5",  // address/fact pulls, drafts, everything else (cheapest)
 };
 const BUCKET = "desk-files";
+// Claude scheduled tasks the desk may start instantly -> name of the Supabase secret holding that
+// task's API-trigger token (created in claude.ai/code/routines → Edit → Trigger + → API → Generate token)
+const TRIGGER_SECRETS: Record<string, string> = {
+  trig_016E2nxBnjy8SnFzGMwNu2Ws: "BOV_BUILDER_TOKEN", // BOV Builder
+};
+const triggerToken = (id: unknown) => (typeof id === "string" && TRIGGER_SECRETS[id] ? Deno.env.get(TRIGGER_SECRETS[id]) || "" : "");
 
 function reply(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } });
@@ -133,6 +140,21 @@ async function doTool(job: any, cfg: any) {
     if (!r.ok) throw new Error(d?.error?.message || d?.message || `DealMachine error ${r.status}`);
     return { result: asMcp(d) };
   }
+  if (server === "Claude Code Remote" && tool === "fire_trigger") {
+    const token = triggerToken(args.trigger_id);
+    if (!token) return null;
+    const r = await fetch(`https://api.anthropic.com/v1/claude_code/routines/${args.trigger_id}/fire`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + token, "anthropic-beta": "experimental-cc-routine-2026-04-01",
+        "anthropic-version": "2023-06-01", "content-type": "application/json",
+      },
+      body: JSON.stringify(args.text ? { text: String(args.text).slice(0, 60000) } : {}),
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d) return { retry: true, why: `Couldn't start the agent (${r.status}: ${JSON.stringify(d || {}).slice(0, 160)})` };
+    return { result: asMcp(d) };
+  }
   return null; // not something we can do here
 }
 
@@ -159,7 +181,8 @@ Deno.serve(async req => {
   // deno-lint-ignore no-explicit-any
   const canDo = (j: any) => j.kind === "ai" ? !!key
     : j.kind === "tool" && ((j.payload?.server === "Gmail" && j.payload?.tool === "create_draft" && !!cfg.gmailDraftHook) ||
-        (j.payload?.server === "Deal machine" && j.payload?.tool === "dealmachine_enrich_address" && !!Deno.env.get("DEALMACHINE_API_KEY")));
+        (j.payload?.server === "Deal machine" && j.payload?.tool === "dealmachine_enrich_address" && !!Deno.env.get("DEALMACHINE_API_KEY")) ||
+        (j.payload?.server === "Claude Code Remote" && j.payload?.tool === "fire_trigger" && !!triggerToken(j.payload?.args?.trigger_id)));
 
   // pick the waiting jobs we can handle, then claim them: queued -> working, so the Queue Worker skips them
   let pick = sb.from("jobs").select("id,kind,payload").eq("status", "queued");
