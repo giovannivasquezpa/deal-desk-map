@@ -113,6 +113,11 @@ async function doTool(job: any, cfg: any) {
     const text = await r.text();
     let d; try { d = JSON.parse(text); } catch (_) { d = null; }
     if (!r.ok || !d || !d.id) return { retry: true, why: `Gmail draft didn't go through (${r.status}: ${text.slice(0, 120)})` };
+    // same "open this draft" link format Gmail's own tools return
+    try {
+      const acct = encodeURIComponent(cfg.gmailAccount || "gvasquez@synergyrealtymiami.com");
+      d.viewUrl = `https://mail.google.com/mail/?authuser=${acct}#all?compose=thread-f:${BigInt("0x" + d.threadId).toString()}%2Bmsg-a:${d.id}`;
+    } catch (_) { /* keep Make's link */ }
     return { result: asMcp(d) };
   }
   if (server === "Deal machine" && tool === "dealmachine_enrich_address") {
