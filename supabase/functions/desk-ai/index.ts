@@ -86,7 +86,9 @@ async function answer(sb: any, key: string, job: any) {
 }
 
 Deno.serve(async req => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: { ...CORS,
+    "Access-Control-Allow-Headers": req.headers.get("Access-Control-Request-Headers") || CORS["Access-Control-Allow-Headers"],
+    "Access-Control-Max-Age": "86400" } });
   if (req.method !== "POST") return reply({ error: "POST only" }, 405);
   const auth = req.headers.get("Authorization") || "";
   if (!auth.startsWith("Bearer ")) return reply({ error: "Sign in first" }, 401);
