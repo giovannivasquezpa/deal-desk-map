@@ -1,6 +1,6 @@
 <!doctype html><html><head><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="same-origin"><link rel="icon" href="data:,"><script src="/app/supabase.js"></script><script src="/app/shim.js"></script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Deal Desk · Giovanni Vasquez PA</title>
-<meta name="desk-build" content="2026-11-16.cloud1">
+<meta name="desk-build" content="2026-11-17.cloud2">
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: an Apple-style operating desk. Large title, frosted sticky tab bar, an "Ask the desk" voice bar
@@ -1032,7 +1032,8 @@ function loadPdfjs(){
 async function pdfText(file){
   try{const lib=await loadPdfjs(); const doc=await lib.getDocument({data:await file.arrayBuffer()}).promise; let out="";
     for(let i=1;i<=Math.min(doc.numPages,30);i++){const p=await doc.getPage(i);const t=await p.getTextContent();out+=t.items.map(x=>x.str).join(" ")+"\n";if(out.length>40000)break;}
-    return out.replace(/\s+\n/g,"\n").slice(0,40000);
+    /* PDFs drop the "fi" ligature as a null character (Quali\u0000ed, veri\u0000ed); put it back, strip other control chars */
+    return out.replace(/ ?\u0000 ?/g,"fi").replace(/[\u0001-\u0008\u000b\u000c\u000e-\u001f]/g," ").replace(/\s+\n/g,"\n").slice(0,40000);
   }catch(e){return ""}
 }
 async function handleFile(file){
@@ -3243,6 +3244,32 @@ async function bovStart(seed,btn){
   }catch(e){BOV.busy="";render();toast("Couldn't save. Try again in a moment.")}
 }
 function bovOpen(seed,from){BOV.form={address:"",city:"",type:"",size:"",land:"",units:"",year:"",folio:"",owner:"",notes:"",...seed,_from:from||""};render();setTimeout(()=>{const el=document.querySelector('[data-bf="address"]');if(el&&!el.value)el.focus()},0)}
+/* Pull the property facts out of a property profile without AI. Handles the Miami REALTORS / PropertyKey tax
+   report ("Property Address:  3231 S DIXIE HWY  WEST PALM BEACH, FL 33405-1509", "... Tax Report - <address>")
+   and county appraiser pages ("Site Address", "Location Address"). Missing facts stay "" and the BOV Builder
+   reads the full profile text anyway. */
+function bovTitle(t){return t.toLowerCase().replace(/\b([a-z])/g,m=>m.toUpperCase()).replace(/\b(Ne|Nw|Se|Sw|Llc|Inc|Lp|Ii|Iii|Pa)\b/g,m=>m.toUpperCase()).replace(/,\s*([a-z]{2})\s+(\d{5})/i,(m,a,b)=>", "+a.toUpperCase()+" "+b)}
+function bovLocalFacts(text){
+  const t=String(text||"").replace(/\t/g," "), f={};
+  const grab=re=>{const m=t.match(re);return m?m[1].trim():""};
+  /* street = words joined by single spaces (PropertyKey puts two spaces between street and city) */
+  const ST="(\\d+[A-Za-z]?(?: [\\w.#/'-]+)*)", CITY="([A-Za-z][A-Za-z.'-]*(?: [A-Za-z.'-]+)*,\\s*[A-Z]{2}\\s+\\d{5}(?:-\\d{4})?)";
+  let m=t.match(new RegExp("(?:Property|Site|Location|Situs|Physical) Address:?\\s+"+ST+"(?:\\s*,\\s*|\\s{2,})"+CITY))
+    ||t.match(new RegExp("Tax Report\\s*[-–]\\s*"+ST+"\\s*,\\s*"+CITY));
+  if(m){f.address=bovTitle(m[1]);f.city=bovTitle(m[2].replace(/\s+/g," "))}
+  else{const a=grab(/(?:Property|Site|Location|Situs) Address:?\s+(\d+[^\n]{3,60}?)(?:\s{2,}|\n|$)/);if(a)f.address=bovTitle(a)}
+  const folio=grab(/(?:PID|PCN|Folio|Parcel(?: ID| Number| #)?)\s*(?:#|No\.?)?:?\s+(\d[\d-]{9,})/i); if(folio) f.folio=folio;
+  const owner=grab(/(?:Current Owner|Owner(?: Name)?)\s*:\s+(.+?)(?:\s{2,}|\n| Tax Mailing| Mailing)/); if(owner) f.owner=owner;
+  const use=grab(/Property Use:\s+(?:\d+\s*\/\s*)?(.+?)(?:\s{2,}|\n| Land Use)/); if(use) f.type=bovTitle(use);
+  const lot=grab(/Lot Size:\s+(.+?)(?:\s{2,}|\n| Waterfront)/); if(lot) f.land=lot.replace(/\b(acres|sf)\b/gi,(x)=>"+/- "+x.toUpperCase().replace("ACRES","AC"));
+  const bldg=grab(/(?:Bldg|Building|Total Living|Living|Heated) Area:?\s+([\d,]{3,})\s*sf/i); if(bldg) f.size=bldg+" +/- SF";
+  const yr=grab(/Year Built:?\s+(\d{4})/i); if(yr) f.year=yr;
+  const units=grab(/\bUnits:?\s+(\d+)/); if(units&&+units>0) f.units=units;
+  const sale=t.match(/Price:\s+(\$[\d,]+).{0,80}?Sale Date:\s+([\d/]+)/);
+  const est=grab(/Estimated Current Value:\s+(\$[\d,]+)/);
+  const notes=[sale?`Last sale ${sale[2]} for ${sale[1]}`:"",est?`PropertyKey estimate ${est}`:""].filter(Boolean).join("; "); if(notes) f.notes=notes;
+  return f;
+}
 async function bovProfile(file){
   if(!file||!assets||!db) return;
   if(file.type!=="application/pdf"&&!/\.pdf$/i.test(file.name)){toast("Please drop a PDF");return}
@@ -3251,8 +3278,10 @@ async function bovProfile(file){
     const up=await assets.upload(file);
     BOV.busy="Reading the profile…"; render();
     const text=await pdfText(file);
-    let f={};
-    if(sample&&text.length>100){
+    /* Read the facts straight from the text first (instant, no AI queue). Only if no address turns up do we
+       ask the AI, which on the cloud desk waits in the queue for the desk agent. */
+    let f=bovLocalFacts(text);
+    if(!f.address&&sample&&text.length>100){
       BOV.busy="Pulling out the property facts…"; render();
       try{const j=await sample.json(`You read Miami-Dade property profiles (Miami REALTORS / PropertyKey tax reports, county property appraiser pages). From the text below return ONLY a JSON object with string fields: address (street address with unit if any), city (city, state zip), type (use from the use code, e.g. "Office condo", "Retail building", "Multifamily 12 units", "Vacant commercial land"), size (building SF with +/-, e.g. "3,359 +/- SF"), land (lot SF or acres), units, year (year built), folio, owner (owner name), notes (one line: last sale date and price, just/assessed value, mortgages). Use "" for anything not in the text. Never invent.\n\nTEXT:\n${text.slice(0,25000)}`,{modelTier:"default"});
         if(j&&typeof j==="object") for(const k of ["address","city","type","size","land","units","year","folio","owner","notes"]) if(typeof j[k]==="string") f[k]=j[k];

@@ -20,7 +20,10 @@
   window.deskSupabase = sb;
 
   const err = (code, message) => Object.assign(new Error(message || code), { code });
-  const clean = v => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
+  /* Postgres JSON can't hold the null character (\u0000) or broken surrogate halves, and PDFs often contain them
+     (a lost "fi" ligature comes out as \u0000). Strip them from every string before it goes to the database. */
+  const safeStr = t => t.replace(/\u0000/g, "").replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "");
+  const clean = v => (v === undefined ? null : JSON.parse(JSON.stringify(v, (k, x) => (typeof x === "string" ? safeStr(x) : x))));
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/-/g, "");
 
@@ -286,7 +289,7 @@
   async function queue(kind, payload, label, signal) {
     await opened;
     const id = crypto.randomUUID();
-    const { error } = await sb.from("jobs").insert({ id, kind, payload });
+    const { error } = await sb.from("jobs").insert({ id, kind, payload: clean(payload) });
     if (error) throw err("queue_failed", error.message);
     jobsListen();
     return new Promise((resolve, reject) => {
