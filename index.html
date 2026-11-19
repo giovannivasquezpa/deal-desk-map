@@ -414,7 +414,7 @@ nav button[aria-selected="true"] .ti{color:var(--accent)}
 const S={ombuild:[],schedule:[],followups:[],scores:[],tasks:[],bov:[],intake:[],buyers:[],listings:[],matches:[],watch:[],outreach:[],runs:[],fits:[]};
 /* Giovanni's rule: a stated minimum is a floor, not proof the buyer can afford a deal far bigger than that. */
 const CAPACITY_RULE=`CAPACITY (check this every time): a buyer's stated minimum ("multifamily 5+ units", "10,000 SF and up", "$1M+") is a floor, NOT proof they can afford something much bigger. Before calling a fit, judge whether the deal is within what this buyer can realistically buy, using their stated price range, typical deal size, past purchases, company or fund size, or lender/equity backing written in their box or notes. If the property's price or scale is far above anything in the box that supports their capacity (for example a 230-unit, $20M+ apartment community for a buyer whose box only says "5+ units" with no price range or institutional backing), it is NOT a strong fit: verdict "possible" at most, score no higher than 50, and say plainly that capacity is unproven. If their box or notes point to small deals (individual or first-time investor, a few small properties, deals of a few million or less), it is "no" with score under 30. Large deals (roughly 100+ units, or $15M and up) are usually bought by big companies, funds and institutions: an individual or small-company buyer whose box only gives an open-ended minimum does not count as able to buy one unless their notes show that kind of backing or track record. The same goes the other way: a property far below an institutional buyer's minimum check size is "no".`;
-let tab="matches", filter="open", tfilter="open", ffilter="upcoming", downloads=null, db=null, mcp=null, canWrite=true, loaded=false, assets=null, sample=null, review=null, busy="";
+let tab="matches", filter="open", tfilter="open", ffilter="upcoming", downloads=null, db=null, mcp=null, canWrite=true, loaded=false, assets=null, sample=null, review=null, busy="", intakeBusy="";
 try{const h=(location.hash||"").slice(1); if(Object.keys(S).includes(h)||h==="library") tab=h;}catch(e){}
 
 const $=id=>document.getElementById(id);
@@ -992,13 +992,19 @@ function sameProperty(addr,skipId){
 }
 const today=()=>new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"});
 function intakeRow(o){
-  const st=o.status||"queued";
-  const cls=st==="matched"?"sent":st==="drafted"?"sent":st==="failed"?"passed":"new";
-  const lab={queued:"Waiting for agent",matched:"Buyers matched",drafted:"Drafts in Gmail",failed:"Needs a look"}[st]||st;
+  let st=o.status||"queued";
+  /* "queued" used to mean three things. Now: not finished (no listing yet), or an old card that already ran and found no fit. */
+  if(st==="queued") st=o.listingId?"nomatch":"unfinished";
+  const cls=st==="matched"||st==="drafted"?"sent":st==="failed"?"passed":st==="needsprice"||st==="unfinished"?"draft":"new";
+  const lab={unfinished:"Not finished",nomatch:"No buyer fit yet",needsprice:"Needs asking price",matched:"Buyers matched",drafted:"Drafts in Gmail",failed:"Needs a look"}[st]||st;
+  const mine=review&&review.id===o.id, working=intakeBusy===o.id;
+  const btn=!canWrite||!assets||mine?"":working?`<span class="btn" aria-disabled="true">Working…</span>`
+    :st==="unfinished"?`<button class="btn primary" type="button" data-intake-finish="${esc(o.id)}">Finish adding it</button>`
+    :(st==="nomatch"||st==="needsprice"||st==="matched")&&o.listingId?`<button class="btn" type="button" data-intake-rematch="${esc(o.id)}">Match again now</button>`:"";
   return `<article class="row s-${cls}">
     <h3>${esc(o.address||o.file)}</h3><span class="pill p-${cls}">${esc(lab)}</span>
     <div class="meta"><span>${esc(o.file||"")}</span>${o.uploaded?`<span>Dropped ${esc(o.uploaded)}</span>`:""}${o.matchCount!=null?`<span>Matches <b>${esc(o.matchCount)}</b></span>`:""}${o.url?`<span><a href="${esc(o.url)}" target="_blank" rel="noopener" style="color:var(--crimson)">Open OM</a></span>`:""}${o.unbrandedUrl?`<span><a href="${esc(o.unbrandedUrl)}" target="_blank" rel="noopener" style="color:var(--ok)">Unbranded OM</a></span>`:jobs[o.id]?`<span data-job="${esc(o.id)}">${esc(jobs[o.id])}</span>`:""}</div>
-    ${o.note?`<p>${esc(o.note)}</p>`:""}</article>`;
+    ${st==="unfinished"&&!o.note?`<p>This drop stopped before "Add to inventory" was tapped, so it isn't on the desk yet. Tap Finish adding it to check the details and match buyers now.</p>`:o.note?`<p>${esc(o.note)}</p>`:""}${btn?`<div class="actions">${btn}</div>`:""}</article>`;
 }
 function intakeView(){
   let h="";
@@ -1048,16 +1054,40 @@ async function handleFile(file){
     const base={file:file.name,assetId:up.id,url:up.url,uploaded:today(),at:new Date().toISOString(),status:"queued",text:text.slice(0,20000)};
     await db.doc("intake/"+id).set(base);
     debrandIntake(id,file,text,file.name); /* runs in the background while you check the details */
-    let f={address:"",city:"",type:"",price:"",size:"",zoning:"",cap:"",market:"On market (another broker)",highlights:""};
-    if(sample&&text.length>200){
-      busy="Pulling out the property details…"; render();
+    busy="Pulling out the property details…"; render();
+    const f=await omFields(text);
+    review={id,f,text}; busy=""; render();
+    if(!f.address) toast(text?"Fill in the address, then add it":"Couldn't read text from this PDF. Fill in the details, or leave it for the agent");
+  }catch(e){busy="";render();toast(e&&e.code==="too_large"?"That PDF is over 20 MB":"Upload failed. Try again in a moment.")}
+}
+async function omFields(text){
+    const f={address:"",city:"",type:"",price:"",size:"",zoning:"",cap:"",market:"On market (another broker)",highlights:""};
+    if(sample&&text&&text.length>200){
       try{const j=await sample.json(`You read commercial real estate Offering Memorandums for a Miami broker. From the OM text below, return ONLY a JSON object with these string fields: address (street address), city (city and state), type (e.g. "Grocery-anchored shopping center", "Industrial outdoor storage", "Multifamily 24 units"), price (asking price like "$7,500,000", or "" if not stated), size (building SF and land acres, using +/- for approximate, e.g. "12,059 +/- SF on 1.59 +/- ac"), zoning, cap (cap rate and/or NOI if stated), highlights (3-5 short facts separated by "; "). Use "" for anything not in the text. Do not invent.\n\nOM TEXT:\n${text.slice(0,30000)}`,{modelTier:"default"});
         if(j&&typeof j==="object") for(const k of Object.keys(f)) if(typeof j[k]==="string"&&k!=="market") f[k]=j[k];
       }catch(e){}
     }
-    review={id,f,text}; busy=""; render();
-    if(!f.address) toast(text?"Fill in the address, then add it":"Couldn't read text from this PDF. Fill in the details, or leave it for the agent");
-  }catch(e){busy="";render();toast(e&&e.code==="too_large"?"That PDF is over 20 MB":"Upload failed. Try again in a moment.")}
+    return f;
+}
+/* Finish a drop that stopped before "Add to inventory" (page closed, computer restarted…). */
+async function finishIntake(id){
+  const it=S.intake.find(x=>x.id===id); if(!it||review) return;
+  intakeBusy=id; busy="Reading the OM again…"; render();
+  try{
+    const f=await omFields(it.text||"");
+    if(it.address&&!f.address) f.address=it.address;
+    review={id,f,text:it.text||""};
+    if(!it.unbrandedUrl&&it.url&&it.unbrandedCheck!=="own"){fetch(it.url).then(r=>r.ok?r.blob():null).then(b=>{if(b)debrandIntake(id,b,it.text||"",it.file)}).catch(()=>{})}
+  }finally{intakeBusy=""; busy=""; render(); window.scrollTo({top:0,behavior:"smooth"})}
+  if(!review.f.address) toast("Fill in the address, then add it");
+}
+/* Re-run matching right now for an OM already on the desk (new buyers, or the price was just added). */
+async function rematchIntake(id){
+  const it=S.intake.find(x=>x.id===id); if(!it||review) return;
+  const l=S.listings.find(x=>x.id===it.listingId); if(!l){toast("Its listing isn't in Inventory anymore");return}
+  intakeBusy=id;
+  review={id,f:{address:l.address||it.address||"",city:l.city||"",type:l.type||"",price:l.price!=null?String(l.price):"",size:l.size||"",zoning:l.zoning||"",cap:"",market:l.market||"On market (another broker)",highlights:l.highlights||""}};
+  try{await addReviewed()}finally{intakeBusy="";render()}
 }
 async function addReviewed(){
   const r=review; if(!r) return;
@@ -1074,12 +1104,12 @@ async function addReviewed(){
     const ub=S.intake.find(x=>x.id===r.id); if(ub&&ub.unbrandedUrl){listing.omUrl=ub.unbrandedUrl;listing.omFile=ub.unbrandedFile}
     if(same) await db.doc("listings/"+docId).update(Object.fromEntries(Object.entries(listing).filter(([k,v])=>v!==""&&v!=null&&!(k==="market"&&/^Off/i.test(v)&&same.market))));
     else await db.doc("listings/"+docId).set(listing);
-    let made=0, drafted=[], held=[], status="queued", note="Added to inventory. The Inbox Reader will match buyers and draft emails tomorrow morning.";
+    let made=0, drafted=[], held=[], status="nomatch", note="Added to inventory. Matching couldn't run here; tap Match again now.";
     const created=[], skippedPass=[];
     /* Giovanni's rule: never pitch a property to buyers until it has a set asking price (and an OM, which this drop is). */
     const priced=typeof listing.price==="number"&&listing.price>0;
     if(!priced){
-      note="No asking price yet, so no buyers were matched. Add the price on the listing and drop the OM again to match and draft.";
+      status="needsprice"; note="No asking price yet, so no buyers were matched. Add the price on the listing in Inventory, then tap Match again now.";
     } else if(sample){
       busy="Matching against "+S.buyers.filter(b=>b.status!=="inactive").length+" buyer boxes…"; render();
       const buyers=S.buyers.filter(b=>b.status!=="inactive").map(b=>({id:b.id,name:b.name,assets:b.assets,markets:b.markets,size:b.size,price:b.price,returns:b.returns,avoid:b.avoid,notes:String(b.notes||"").slice(0,240)}));
@@ -1092,15 +1122,16 @@ async function addReviewed(){
           const b=S.buyers.find(x=>x.id===m.buyerId);
           if(passedOn(b,r.f.address)){skippedPass.push(b.name);continue}
           const mid="om-"+lid.slice(0,40)+"-"+m.buyerId;
+          if(S.matches.some(x=>x.id===mid||(x.buyer===b.name&&streetKey(x.listing)===streetKey(r.f.address)))) continue; /* already matched before */
           const contact=b.email||b.contact||"";
           const doc={buyer:b.name,listing:r.f.address,status:emailOf({contact})?"new":"needs email",direction:"Listing to buyer",contact,why:String(m.why||"").slice(0,400),rule:/\bFL\b|Florida|Miami|Fort Lauderdale|Palm Beach|Orlando|Tampa|Jacksonville/i.test(r.f.city+" "+r.f.address)?"FL, licensed":"Check state: license swap, cooperating broker or referral",updated:today()};
           await db.doc("matches/"+mid).set(doc);
           created.push({id:mid,m:doc,b});
           made++;
         }
-        note=(made?`${made} buyer${made>1?"s":""} matched.`:"No strong buyer fits on the desk yet. The agents will keep checking.")+(skippedPass.length?` Skipped ${skippedPass.length} who already passed on it (${skippedPass.join(", ")}).`:"");
-        status=made?"matched":"queued";
-      }catch(e){note="Added to inventory. Matching will run with tomorrow's Inbox Reader.";}
+        note=(made?`${made} buyer${made>1?"s":""} matched.`:`No strong buyer fit among ${buyers.length} buyer boxes. Tap Match again now after you add buyers; the Inbox Reader also re-checks it each morning.`)+(skippedPass.length?` Skipped ${skippedPass.length} who already passed on it (${skippedPass.join(", ")}).`:"");
+        status=made?"matched":"nomatch";
+      }catch(e){status="nomatch";note="Added to inventory, but matching didn't finish. Tap Match again now.";}
     }
     /* Drafts right away: one Gmail draft per matched buyer, so they're ready to send now instead of tomorrow morning. */
     if(created.length&&mcp){
@@ -1946,6 +1977,8 @@ $("list").addEventListener("click",async e=>{
   if(e.target.closest("#drop")){$("omfile").click();return}
   if(e.target.closest("#om-add")){addReviewed();return}
   if(e.target.closest("#om-cancel")){review=null;render();return}
+  const fin=e.target.closest("[data-intake-finish]"); if(fin){finishIntake(fin.dataset.intakeFinish);return}
+  const rm=e.target.closest("[data-intake-rematch]"); if(rm){rematchIntake(rm.dataset.intakeRematch);return}
   const w=e.target.closest("[data-write]"); if(w){writeDraft(w.dataset.write,w);return}
   const fx=e.target.closest("[data-fix]"); if(fx){const [k,id]=fx.dataset.fix.split(/:(.*)/s);const en=libraryEntries().find(x=>x.kind===k&&x.id===id);if(en)openFixer(en);return}
   const rc=e.target.closest("[data-reclean]"); if(rc){debrandListing(rc.dataset.reclean);return}
