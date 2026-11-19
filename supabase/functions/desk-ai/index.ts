@@ -80,28 +80,48 @@ async function answer(sb: any, key: string, job: any) {
     messages = [...messages.slice(0, -1), { ...last, content: [...imgs, ...last.content] }];
   }
 
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json",
-      // keys made without a workspace must name one: Giovanni's "Default" workspace
-      "anthropic-workspace-id": Deno.env.get("ANTHROPIC_WORKSPACE_ID") || "wrkspc_01XmxjkzZwndtiFvCGXoEPbb",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: tier === "complex" ? 16000 : 8000,
-      system: json ? "Reply with ONLY the JSON that was asked for. No explanations, no code fences." : undefined,
-      messages,
-    }),
-  });
-  if (r.status === 429 || r.status >= 500) return { retry: true, why: `Anthropic busy (${r.status})` };
-  const out = await r.json();
+  // research: true -> Claude may search the web and read pages (Anthropic server tools) before answering
+  const research = !!p.research;
+  const tools = research ? [
+    { type: "web_search_20250305", name: "web_search", max_uses: 8 },
+    { type: "web_fetch_20250910", name: "web_fetch", max_uses: 5 },
+  ] : undefined;
+  const system = json
+    ? (research ? "Use the web tools as needed to look things up. When you're done, reply with ONLY the JSON that was asked for. No explanations, no code fences."
+        : "Reply with ONLY the JSON that was asked for. No explanations, no code fences.")
+    : undefined;
+  // deno-lint-ignore no-explicit-any
+  let out: any = null, r: Response | null = null, convo = messages;
+  for (let turn = 0; turn < 5; turn++) { // long searches come back as "pause_turn": hand the turn back and let it continue
+    r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json",
+        // keys made without a workspace must name one: Giovanni's "Default" workspace
+        "anthropic-workspace-id": Deno.env.get("ANTHROPIC_WORKSPACE_ID") || "wrkspc_01XmxjkzZwndtiFvCGXoEPbb",
+        ...(research ? { "anthropic-beta": "web-fetch-2025-09-10" } : {}),
+      },
+      body: JSON.stringify({ model, max_tokens: tier === "complex" ? 16000 : 8000, system, messages: convo, ...(tools ? { tools } : {}) }),
+    });
+    if (r.status === 429 || r.status >= 500) return { retry: true, why: `Anthropic busy (${r.status})` };
+    out = await r.json();
+    if (r.ok && out?.stop_reason === "pause_turn") { convo = [...convo, { role: "assistant", content: out.content }]; continue; }
+    break;
+  }
+  r = r as Response;
   const msg = out?.error?.message || `Anthropic error ${r.status}`;
+  // a research request the account can't do (web search off in the Console, etc.): fail it so the page carries on
+  if (research && !r.ok && r.status < 500) throw new Error("Web research isn't available: " + msg);
   // key, workspace or billing problems are the account's fault, not the job's: leave it in line
   if (r.status === 401 || r.status === 402 || r.status === 403 ||
       /api key|workspace|credit balance|billing|permission/i.test(msg)) return { retry: true, why: msg, account: true };
   if (!r.ok) throw new Error(msg);
-  const text = (out.content || []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("");
+  // with web tools the answer is the text after the last search/fetch result
+  // deno-lint-ignore no-explicit-any
+  const blocks: any[] = out.content || [];
+  let lastTool = -1; blocks.forEach((b, i) => { if (/tool_result$/.test(b.type)) lastTool = i; });
+  const textOf = (bs: { type: string; text?: string }[]) => bs.filter(b => b.type === "text").map(b => b.text || "").join("");
+  const text = textOf(blocks.slice(lastTool + 1)).trim() || textOf(blocks);
   const truncated = out.stop_reason === "max_tokens";
   return { result: json ? { value: parseJson(text) } : { text, truncated } };
 }

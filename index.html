@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="same-origin"><link rel="icon" href="data:,"><script src="/app/supabase.js"></script><script src="/app/shim.js?v=2026-11-17.4"></script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html><html><head><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="same-origin"><link rel="icon" href="data:,"><script src="/app/supabase.js"></script><script src="/app/shim.js?v=2026-11-19.5"></script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Deal Desk · Giovanni Vasquez PA</title>
 <meta name="desk-build" content="2026-11-17.cloud7">
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -302,6 +302,7 @@ button.thumb:disabled{cursor:default;color:var(--faint);background:var(--fill2)}
 .bov-ask .files{display:flex;flex-wrap:wrap;gap:6px;font-size:13px;color:var(--muted)}
 .bov-ask .files b{color:var(--ink);font-weight:500}
 .bov-drop{display:grid;gap:8px;border:1.5px dashed var(--line);border-radius:10px;padding:12px;background:var(--panel);transition:border-color .15s,background-color .15s}
+[data-omb-q].over textarea,[data-omb-q].over{outline:2px dashed var(--accent);outline-offset:3px;border-radius:10px}.bov-ask.over{outline:2px dashed var(--accent);outline-offset:4px}.omb-q textarea{min-height:42px;resize:vertical}
 .bov-drop.over{border-color:var(--accent);background:var(--accent-soft)}
 .bov-drop-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:13px;color:var(--muted)}
 .bov-chips{display:flex;flex-wrap:wrap;gap:6px}
@@ -405,7 +406,7 @@ nav button[aria-selected="true"] .ti{color:var(--accent)}
 </div>
 <input type="file" id="omfile" accept="application/pdf" hidden>
 <input type="file" id="ombfiles" multiple accept=".pdf,image/*,.doc,.docx,.xls,.xlsx,.xlsm,.csv,.txt,.md,.eml,.html,.json" hidden>
-<input type="file" id="bovfile" accept="application/pdf" hidden>
+<input type="file" id="bovfile" accept="application/pdf,image/*,.xlsx,.xls,.csv" hidden>
 <input type="file" id="photofile" accept="image/*" hidden>
 <div class="toast" id="toast" hidden></div>
 <span id="n-schedule" hidden></span>
@@ -1968,6 +1969,21 @@ $("list").addEventListener("submit",async e=>{
   try{await db.doc("tasks/"+new Date().toISOString().slice(0,10)+"-task-"+slug(title).slice(0,40)+"-"+Date.now().toString(36).slice(-4)).set({title,status:"open",created:new Date().toISOString(),source:"You"});$("task-title").value="";toast("Task added")}
   catch(err){toast("Couldn't save. Try again in a moment.")}
 });
+/* paste or drop pictures / PDFs into OM Builder questions and BOV question cards */
+$("list").addEventListener("paste",e=>{
+  const files=[...((e.clipboardData&&e.clipboardData.files)||[])]; if(!files.length) return;
+  const bq=e.target.closest("[data-bov-ask]"); if(bq){e.preventDefault(); bovUpload(bq.dataset.bovAsk,files.map(f=>/^image\.(png|jpe?g)$/i.test(f.name)?new File([f],"Pasted picture "+new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",second:"2-digit"}).replace(/:/g,".")+"."+(f.type.split("/")[1]||"png"),{type:f.type}):f)); return}
+  const q=e.target.closest("[data-omb-q]"); if(q&&OMB.open){e.preventDefault(); ombAttach(OMB.open,Number(q.dataset.ombQ),files)}
+});
+$("list").addEventListener("dragover",e=>{const q=e.target.closest("[data-omb-q]");if(q&&OMB.open){e.preventDefault();q.classList.add("over")}});
+$("list").addEventListener("dragleave",e=>{const q=e.target.closest("[data-omb-q]");if(q&&!q.contains(e.relatedTarget))q.classList.remove("over")});
+$("list").addEventListener("drop",e=>{const q=e.target.closest("[data-omb-q]");if(!q||!OMB.open)return;e.preventDefault();q.classList.remove("over");ombAttach(OMB.open,Number(q.dataset.ombQ),e.dataTransfer.files)});
+$("list").addEventListener("change",e=>{if(e.target.id!=="omb-attfile"||!OMB.open)return;const f=[...e.target.files];e.target.value="";ombAttach(OMB.open,OMB.attI,f)});
+$("list").addEventListener("click",e=>{
+  const at=e.target.closest("[data-omb-attach]"); if(at){OMB.attI=Number(at.dataset.ombAttach);const fi=document.getElementById("omb-attfile");if(fi)fi.click();return}
+  const rm=e.target.closest("[data-omb-rmatt]"); if(rm&&OMB.open){e.preventDefault();const b=S.ombuild.find(x=>x.id===OMB.open);const list=ombAtt(OMB.open);const f=ombReadForm(b||{});if(b){b.answers={...(b.answers||{}),...f.answers};b.extra=f.extra}list.splice(Number(rm.dataset.ombRmatt),1);db.doc("ombuild/"+OMB.open).update({answerFiles:list,answers:b&&b.answers||{},extra:b&&b.extra||""}).catch(()=>{});render();return}
+  const lk=e.target.closest("[data-omb-lookup]"); if(lk){ombResearchOpen(lk.dataset.ombLookup);return}
+});
 $("omfile").addEventListener("change",e=>{const f=e.target.files&&e.target.files[0];e.target.value="";handleFile(f)});
 $("list").addEventListener("dragover",e=>{const d=e.target.closest("#drop");if(d){e.preventDefault();d.classList.add("over")}});
 $("list").addEventListener("dragleave",e=>{const d=e.target.closest("#drop");if(d)d.classList.remove("over")});
@@ -3104,10 +3120,10 @@ function bovAskHtml(b){
   const fl=BOV.files[b.id]||[];
   return `<div class="bov-ask" data-bov-ask="${esc(b.id)}">
     <h4>A few questions to finish this BOV</h4>
-    <p class="hint2">Answer what you know. Leave a box empty if you don't know it.</p>
+    <p class="hint2">Answer what you know. Paste or drop a picture or PDF anywhere on this card. Leave a box empty if you don't know it: the BOV Builder researches it first.</p>
     <ol>${qs.map((q,i)=>`<li><span>${esc(q.q)}</span>${q.help?`<small>${esc(q.help)}</small>`:""}<textarea rows="1" data-bq="${esc(b.id)}" data-i="${i}" aria-label="${esc(q.q)}">${esc(a[i]||"")}</textarea></li>`).join("")}</ol>
     ${assets?`<div class="bov-drop" data-bov-drop="${esc(b.id)}">
-      <div class="bov-drop-top"><button class="btn" type="button" data-bov-file="${esc(b.id)}">Attach documents</button><span>or drop PDFs here, as many as you like. Rent roll, tax report, T-12, comps…</span></div>
+      <div class="bov-drop-top"><button class="btn" type="button" data-bov-file="${esc(b.id)}">Attach documents</button><span>or drop / paste PDFs and pictures here, as many as you like. Rent roll, tax report, T-12, screenshots…</span></div>
       ${fl.length||(BOV.up[b.id]||0)?`<div class="bov-chips">${fl.map((f,i)=>`<span class="bov-chip">📎 <span title="${esc(f.name)}">${esc(f.name)}</span><button type="button" data-bov-rmfile="${esc(b.id)}" data-i="${i}" aria-label="Remove ${esc(f.name)}" title="Remove">×</button></span>`).join("")}${BOV.up[b.id]?`<span class="bov-chip up">Uploading ${BOV.up[b.id]}…</span>`:""}</div>`:""}
     </div>`:""}
     <label class="chk"><input type="checkbox" data-bov-est="${esc(b.id)}"${BOV.est[b.id]?" checked":""}> For anything I left blank, use your best estimate and label it in the BOV</label>
@@ -3204,9 +3220,9 @@ function bovRemoveFile(id,i){
   fl.splice(i,1); bovKeep(render); toast("Removed "+f.name);
   if(f.id&&assets) assets.delete(f.id).catch(()=>{});   /* also deletes the stored copy, so it never reaches the BOV Builder */
 }
-$("list").addEventListener("dragover",e=>{const d=e.target.closest("[data-bov-drop]");if(d){e.preventDefault();d.classList.add("over")}});
-$("list").addEventListener("dragleave",e=>{const d=e.target.closest("[data-bov-drop]");if(d&&!d.contains(e.relatedTarget))d.classList.remove("over")});
-$("list").addEventListener("drop",e=>{const d=e.target.closest("[data-bov-drop]");if(!d)return;e.preventDefault();d.classList.remove("over");bovUpload(d.dataset.bovDrop,e.dataTransfer.files)});
+$("list").addEventListener("dragover",e=>{const d=e.target.closest("[data-bov-drop]")||e.target.closest("[data-bov-ask]");if(d){e.preventDefault();d.classList.add("over")}});
+$("list").addEventListener("dragleave",e=>{const d=e.target.closest("[data-bov-drop]")||e.target.closest("[data-bov-ask]");if(d&&!d.contains(e.relatedTarget))d.classList.remove("over")});
+$("list").addEventListener("drop",e=>{const d=e.target.closest("[data-bov-drop]")||e.target.closest("[data-bov-ask]");if(!d)return;e.preventDefault();d.classList.remove("over");bovUpload(d.dataset.bovDrop||d.dataset.bovAsk,e.dataTransfer.files)});
 $("list").addEventListener("input",e=>{const t=e.target;
   if(t.dataset&&t.dataset.bq!==undefined){const id=t.dataset.bq;(BOV.ans[id]||(BOV.ans[id]=[]))[+t.dataset.i]=t.value; t.style.height="auto"; t.style.height=Math.min(t.scrollHeight,220)+"px"}
   if(t.dataset&&t.dataset.bovEst!==undefined) BOV.est[t.dataset.bovEst]=t.checked;});
@@ -3374,7 +3390,7 @@ $("list").addEventListener("click",async e=>{
    navy/cream, Cormorant + Jost, 20 x 11.25 in pages) right here in the page. "Add to the wheel" puts it in
    Inventory and the OM Library and matches buyers exactly like Drop an OM does. Each build is saved in the
    "ombuild" collection, so you can close the page and pick it up later. */
-const OMB={busy:"",open:null,over:false};
+const OMB={busy:"",open:null,over:false,att:{},up:0,res:{},attI:-1};
 const OMB_ST={reading:["Reading files","new"],questions:["Questions for you","draft"],building:["Building","new"],ready:["OM ready","sent"],added:["On the wheel","sent"],failed:["Needs a look","passed"]};
 let omLibs={};
 function omLib(key,urls,global){
@@ -3484,6 +3500,97 @@ const OMB_RULES=`Rules:
 - highlights: 4-6 items. locationFacts, demographics, terms: at most 6 rows each, values under 8 words. financials: at most 12 rows. rentRoll: every tenant you find.
 - Do NOT use the listing broker's name, firm, logo text, phone or email anywhere. The OM is presented by Synergy Realty Advisors.
 - missing: at most 10 questions, most important first. Ask about what a buyer needs that the files don't settle: asking price, NOI / cap rate, building size, land size, year built, zoning, parking, occupancy and lease terms, tenant details, and the property's best selling points if nothing says. When two files disagree on a figure, ask which one is right and say both values. Don't ask about things that don't apply (e.g. no rent roll question for vacant land). Never ask about the broker or commission.`;
+/* ---- Research: fill what the files don't say from public records and the web ----
+   DealMachine first (public records), then Claude with live web search / page reading (county appraiser,
+   city code enforcement and permits, Sunbiz, listing pages, tenant sites, census data). */
+const OMB_RFIELDS=["county","folio","type","tenancy","buildingSf","land","yearBuilt","stories","units","zoning","parking","occupancy","construction","location","locationFacts","demographics","demoSource"];
+const ombBlank=v=>v==null||(Array.isArray(v)?!v.length:!String(v).trim());
+async function ombResearch(d,qs){
+  if(!sample||!d||!d.address) return null;
+  let dm=null;
+  if(mcp){try{
+    const r=await mcp.callTool("Deal machine","dealmachine_enrich_address",{full_address:[d.address,d.city].filter(Boolean).join(", "),contact_audience:"none"});
+    let pl=r&&(r.payload||r.structuredContent); if(!pl){try{pl=JSON.parse((r.content||[]).find(c=>c.type==="text").text)}catch(_){pl=null}}
+    const x=pl&&pl.data&&pl.data[0];
+    if(x&&x.matched){dm=dmFacts(x)||{}; for(const [k,v] of Object.entries(x)) if(/zon|land_use|property_type|use_code|units|stories|county|subdivision|legal/i.test(k)&&v!=null&&typeof v!=="object") dm[k]=v;}
+  }catch(_){}}
+  const known={}; for(const k of OMB_RFIELDS) known[k]=d[k];
+  const open=qs.map((q,i)=>({i,q:q.q,why:q.why||""}));
+  const prompt=`You are researching ONE commercial property so a Miami broker can finish its Offering Memorandum. Use your web search and web fetch tools to look things up: the county property appraiser (e.g. bcpa.net for Broward, miamidade.gov/pa, pbcpao.gov), city code-enforcement, permit and zoning portals, Sunbiz, public listing pages for this address (LoopNet, Crexi, CommercialCafe, CityFeet), the tenant's own website, Google Maps / Street View descriptions, and census.gov or similar for 1/3/5-mile demographics.
+
+PROPERTY: ${d.name||""} ${d.address}, ${d.city||""}${d.folio?` (folio ${d.folio})`:""}. Type: ${d.type||"unknown"}.
+PUBLIC RECORDS FROM DEALMACHINE: ${dm?JSON.stringify(dm).slice(0,2500):"none found"}
+WHAT THE FACT SHEET ALREADY SAYS (blank = unknown): ${JSON.stringify(known).slice(0,4000)}
+OPEN QUESTIONS (answer each one you can): ${JSON.stringify(open)}
+
+Rules:
+- Report only what a source actually says. Never guess. If you can't find something, leave it out.
+- Asking price, NOI, rents and lease terms: only if a public listing or record states them, and say so in the answer (e.g. "$7,600/mo gross per the Crexi listing").
+- Code violations / open cases: give the case number, status and date if the city portal or record shows them.
+- Use +/- for approximate square footage and acreage. Never mention the listing broker, their firm, phone or email.
+- Keep each answer short (under 30 words) and give the source as a site name or domain.
+
+Return ONLY this JSON: {"fill":{<only fields from the fact sheet list above that are blank and that you found; locationFacts and demographics are [["label","value"]] lists>},"answers":[{"i":<question number>,"answer":"","source":""}]}`;
+  return await sample.json(prompt,{modelTier:"complex",research:true,signal:AbortSignal.timeout?AbortSignal.timeout(300000):undefined});
+}
+function ombApplyResearch(d,qs,answers,res){
+  if(!res||typeof res!=="object") return 0;
+  const fill=res.fill&&typeof res.fill==="object"?res.fill:{};
+  for(const k of OMB_RFIELDS){const v=fill[k]; if(ombBlank(d[k])&&!ombBlank(v)) d[k]=Array.isArray(v)?v.slice(0,6):String(v)}
+  let n=0;
+  for(const a of Array.isArray(res.answers)?res.answers:[]){
+    const i=Number(a&&a.i); if(!qs[i]||!a.answer||String(answers[i]||"").trim()) continue;
+    answers[i]=String(a.answer).trim()+(a.source?` (found: ${String(a.source).trim()})`:" (found online)"); qs[i].found=true; n++;
+  }
+  return n;
+}
+/* Look up the boxes that are still empty on an open question form (runs on its own the first time a form opens). */
+async function ombResearchOpen(id){
+  const b=S.ombuild.find(x=>x.id===id); if(!b||OMB.res[id]) return;
+  const form=OMB.open===id?ombReadForm(b):{answers:{},extra:b.extra||""};
+  b.answers={...(b.answers||{}),...Object.fromEntries(Object.entries(form.answers).filter(([,v])=>v))}; b.extra=form.extra;
+  OMB.res[id]=1; render();
+  try{
+    const d={...(b.data||{})}, qs=(b.questions||[]).map(q=>({...q})), answers={...b.answers};
+    const empty=qs.map((q,i)=>({...q,_i:i})).filter(q=>!String(answers[q._i]||"").trim());
+    let res=null;
+    if(empty.length||OMB_RFIELDS.some(k=>ombBlank(d[k]))){
+      res=await ombResearch(d,qs.map((q,i)=>String(answers[i]||"").trim()?{q:"(already answered, skip)"}:q));
+    }
+    /* keep anything typed while the lookup ran */
+    if(OMB.open===id){const now=ombReadForm(b).answers; for(const k in now) if(now[k]) answers[k]=now[k];}
+    const n=ombApplyResearch(d,qs,answers,res);
+    await db.doc("ombuild/"+id).update({data:d,questions:qs,answers,extra:b.extra||"",researchedAt:new Date().toISOString()});
+    toast(n?`Found ${n} answer${n>1?"s":""} online. Check them, then build.`:"Looked it up. Nothing more online for the empty boxes.");
+  }catch(e){
+    try{await db.doc("ombuild/"+id).update({researchedAt:new Date().toISOString()})}catch(_){}
+    toast("Couldn't look things up right now. Answer what you know, or tap Look up the empty ones again.");
+  }finally{delete OMB.res[id]; render()}
+}
+/* ---- Answers by paste or drop: text, pictures or PDFs, per question or for the whole OM ---- */
+function ombAtt(id){const b=S.ombuild.find(x=>x.id===id)||{}; return OMB.att[id]||(OMB.att[id]=(b.answerFiles||[]).slice())}
+async function ombAttach(id,i,files){
+  const b=S.ombuild.find(x=>x.id===id); if(!b||!assets||!files||!files.length) return;
+  const list=ombAtt(id), form=ombReadForm(b);
+  b.answers={...(b.answers||{}),...form.answers}; b.extra=form.extra;
+  for(const f of [...files]){
+    const isPdf=f.type==="application/pdf"||/\.pdf$/i.test(f.name||""), isImg=/^image\//.test(f.type||"");
+    if(!isPdf&&!isImg){toast("Paste or drop a picture or a PDF");continue}
+    OMB.up++; render();
+    try{
+      const up=await assets.upload(f);
+      const name=f.name&&!/^image\.(png|jpe?g)$/i.test(f.name)?f.name:"Pasted picture "+new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",second:"2-digit"});
+      list.push({i,name,kind:isPdf?"pdf":"image",id:up.id,url:up.url,type:f.type||"",text:isPdf?(await pdfText(f)).slice(0,15000):""});
+    }catch(e){toast(e&&e.code==="too_large"?"That file is over 20 MB":"Couldn't upload "+(f.name||"that file"))}
+    finally{OMB.up--}
+  }
+  try{await db.doc("ombuild/"+id).update({answerFiles:list,answers:b.answers,extra:b.extra})}catch(_){}
+  render();
+}
+function ombChips(id,i){
+  const fs=ombAtt(id).map((a,k)=>({...a,k})).filter(a=>a.i===i); if(!fs.length) return "";
+  return `<span class="bov-chips">${fs.map(a=>`<span class="bov-chip">${a.kind==="image"?"🖼":"📎"} <span title="${esc(a.name)}">${esc(a.name)}</span><button type="button" data-omb-rmatt="${a.k}" aria-label="Remove ${esc(a.name)}" title="Remove">×</button></span>`).join("")}</span>`;
+}
 async function ombExtract(texts,images,existing){
   const body=texts.map(x=>`=== FILE: ${x.name} (${x.kind}) ===\n${x.text}`).join("\n\n");
   const room=150000, per=Math.max(6000,Math.floor(room/Math.max(1,texts.length)));
@@ -3492,8 +3599,8 @@ async function ombExtract(texts,images,existing){
   const opts={modelTier:"complex"}; if(images.length) opts.images=images;
   return await sample.json(prompt,opts);
 }
-async function ombMerge(data,qa,extra){
-  return await sample.json(`Here is the fact sheet for an Offering Memorandum, and Giovanni's answers to the questions that were open. Fold every answer into the fact sheet (an answer can fix or add any field, including rent roll rows, financial lines, highlights or the summary; rewrite summary and highlights if an answer changes the story). Leave fields with no answer as they are. Return the complete updated object in the same shape, with "missing" set to [] .\n\n${OMB_RULES.split("\n- missing")[0]}\n\nFACT SHEET:\n${JSON.stringify(data)}\n\nANSWERS:\n${qa.map(x=>`Q: ${x.q}\nA: ${x.a}`).join("\n\n")}${extra?`\n\nOTHER NOTES FROM GIOVANNI:\n${extra}`:""}\n\nReturn ONLY the JSON object.`,{modelTier:"default"});
+async function ombMerge(data,qa,extra,images){
+  return await sample.json((images&&images.length?"Some answers come with attached pictures (screenshots, photos of documents); they are attached to this message in order. Read them as answers.\n\n":"")+`Here is the fact sheet for an Offering Memorandum, and Giovanni's answers to the questions that were open. Fold every answer into the fact sheet (an answer can fix or add any field, including rent roll rows, financial lines, highlights or the summary; rewrite summary and highlights if an answer changes the story). Leave fields with no answer as they are. Return the complete updated object in the same shape, with "missing" set to [] .\n\n${OMB_RULES.split("\n- missing")[0]}\n\nFACT SHEET:\n${JSON.stringify(data)}\n\nANSWERS:\n${qa.map(x=>`Q: ${x.q}\nA: ${x.a}`).join("\n\n")}${extra?`\n\nOTHER NOTES FROM GIOVANNI:\n${extra}`:""}\n\nReturn ONLY the JSON object.`,{modelTier:images&&images.length?"complex":"default",...(images&&images.length?{images}:{})});
 }
 function ombClean(j){
   const s=v=>typeof v==="string"?v.trim():v==null?"":String(v);
@@ -3707,13 +3814,17 @@ function ombOpenView(b){
       <div class="fields"><label>Market<select id="omb-mkt">${["Off-market (private)","On market (giovannivasquez.com)","On market (another broker)"].map(o=>`<option ${o===mk?"selected":""}>${o}</option>`).join("")}</select></label></div>
       <div class="actions"><button class="btn primary" id="omb-wheel">Add to the wheel</button><button class="btn" id="omb-close">Not now</button></div></div>`;
   }
-  const qs=b.questions||[];
-  return `<div class="review"><h3>${esc(d.name||d.address||"Your property")}: ${qs.length?`${qs.length} thing${qs.length>1?"s":""} I couldn't find`:"ready to build"}</h3>
-    <p class="ask-note">Read ${(b.files||[]).length} file${(b.files||[]).length===1?"":"s"}: ${esc((b.files||[]).map(f=>f.name+(f.note?` (${f.note})`:"")).join(", "))}. ${qs.length?"Answer what you know. Leave a box empty and that item stays off the OM.":""}</p>
-    ${qs.length?`<div class="fields omb-q">${qs.map((q,i)=>`<label class="wide">${esc(q.q)}${q.why?`<small>${esc(q.why)}</small>`:""}<input data-omb-a="${i}" value="${esc((b.answers||{})[i]||"")}" placeholder="${esc(q.hint||"")}"></label>`).join("")}</div>`:""}
-    <div class="fields"><label class="wide">Anything else to put in or fix? (optional)<textarea id="omb-extra" rows="2" placeholder="e.g. Seller will consider financing. Call it 'Coral Way Retail Center'.">${esc(b.extra||"")}</textarea></label></div>
+  const qs=b.questions||[], ans=b.answers||{}, looking=!!OMB.res[b.id];
+  if(b.status==="questions"&&!b.researchedAt&&!looking&&canWrite) setTimeout(()=>ombResearchOpen(b.id),0);
+  const emptyN=qs.filter((q,i)=>!String(ans[i]||"").trim()&&!ombAtt(b.id).some(a=>a.i===i)).length;
+  return `<div class="review"><h3>${esc(d.name||d.address||"Your property")}: ${qs.length?`${qs.length} thing${qs.length>1?"s":""} the files didn't say`:"ready to build"}</h3>
+    <p class="ask-note">Read ${(b.files||[]).length} file${(b.files||[]).length===1?"":"s"}: ${esc((b.files||[]).map(f=>f.name+(f.note?` (${f.note})`:"")).join(", "))}. ${qs.length?"Answers marked (found: …) were looked up online: check them. Type, paste text, or paste / drop a picture or PDF on any question. Leave a box empty and that item stays off the OM.":""}</p>
+    ${looking?`<div class="progress"><span class="dots"><i></i><i></i><i></i></span> Looking up the empty boxes online (public records, county and city sites, listings, demographics)… you can keep typing.</div>`:""}
+    ${qs.length?`<div class="fields omb-q">${qs.map((q,i)=>`<label class="wide" data-omb-q="${i}">${esc(q.q)}${q.why?`<small>${esc(q.why)}</small>`:""}<textarea rows="1" data-omb-a="${i}" placeholder="${esc(q.hint||"")} · or paste / drop a picture or PDF">${esc(ans[i]||"")}</textarea>${ombChips(b.id,i)}</label>`).join("")}</div>`:""}
+    <div class="fields"><label class="wide" data-omb-q="-1">Anything else to put in or fix? (optional)<textarea id="omb-extra" rows="2" placeholder="e.g. Seller will consider financing. Call it 'Coral Way Retail Center'. You can also paste or drop pictures and PDFs here.">${esc(b.extra||"")}</textarea>${ombChips(b.id,-1)}</label></div>
+    <div class="actions" style="margin-top:-4px"><button class="btn" type="button" data-omb-attach="-1">Attach pictures or PDFs</button>${OMB.up?`<span class="ask-note">Uploading ${OMB.up}…</span>`:""}<input type="file" id="omb-attfile" accept="application/pdf,image/*" multiple hidden></div>
     ${ombPhotoPick(b)}
-    <div class="actions"><button class="btn primary" id="omb-build">Build the OM</button><button class="btn" id="omb-close">Save for later</button>${b.wasAdded?`<span class="ask-note">Already on the wheel: the rebuilt OM replaces the one on its Inventory card.</span>`:""}</div></div>`;
+    <div class="actions"><button class="btn primary" id="omb-build">Build the OM</button>${qs.length&&emptyN&&!looking?`<button class="btn" type="button" data-omb-lookup="${esc(b.id)}">Look up the empty ones</button>`:""}<button class="btn" id="omb-close">Save for later</button>${b.wasAdded?`<span class="ask-note">Already on the wheel: the rebuilt OM replaces the one on its Inventory card.</span>`:""}</div></div>`;
 }
 function ombView(){
   let h="";
@@ -3757,9 +3868,15 @@ async function ombFinish(id,texts,scans){
   let {d,missing}=ombClean(j);
   const known=d.address&&typeof sameProperty==="function"?sameProperty(d.address):null;
   if(known&&!d.price&&known.price){d.price=typeof known.price==="number"?"$"+known.price.toLocaleString("en-US"):String(known.price);missing=missing.filter(m=>!/price/i.test(m.key+" "+m.q))}
-  await db.doc("ombuild/"+id).update({status:"questions",data:d,questions:missing,answers:{},listingId:known?known.id:"",note:""});
+  const answers={}; let found=0;
+  if(d.address){
+    ombSet("Looking up what the files don't say: public records, county and city sites, listings, demographics…");
+    try{found=ombApplyResearch(d,missing,answers,await ombResearch(d,missing))}catch(_){}
+  }
+  await db.doc("ombuild/"+id).update({status:"questions",data:d,questions:missing,answers,listingId:known?known.id:"",note:"",researchedAt:new Date().toISOString()});
   OMB.open=id; ombSet("");
   if(!missing.length) toast("Got everything. Pick the cover photo and build it.");
+  else if(found) toast(`Found ${found} answer${found>1?"s":""} online. Check them, then build.`);
 }
 const ombLimit=e=>!!e&&(e.code==="rate_limited"||e.code==="usage_limit"||e.code==="quota_exceeded");
 async function ombFail(id,e){
@@ -3818,8 +3935,13 @@ async function ombBuild(id){
     ombSet("Saving your answers…");
     await db.doc("ombuild/"+id).update({answers,extra,status:"building"});
     let d=b.data||{};
-    const qa=(b.questions||[]).map((q,i)=>({q:q.q,a:answers[i]||""})).filter(x=>x.a);
-    if(qa.length||extra){ombSet("Claude is folding your answers in…"); const j=await ombMerge(d,qa,extra); const c=ombClean(j); if(c.d.address||c.d.name) d=c.d;}
+    const att=ombAtt(id), pics=att.filter(a=>a.kind==="image");
+    const fileTxt=a=>a.kind==="pdf"?`[Attached PDF "${a.name}"]\n${a.text||"(scanned, no text layer)"}`:`[Attached picture "${a.name}" (picture ${pics.indexOf(a)+1})]`;
+    const qa=(b.questions||[]).map((q,i)=>({q:q.q,a:[answers[i]||"",...att.filter(a=>a.i===i).map(fileTxt)].filter(Boolean).join("\n")})).filter(x=>x.a);
+    const extra2=[extra,...att.filter(a=>a.i<0).map(fileTxt)].filter(Boolean).join("\n\n");
+    let imgs=[];
+    if(pics.length){ombSet("Opening the pictures you added…"); const slots=await imageSlots(); for(const a of pics.slice(0,Math.max(0,slots))){try{const r=await fetch(a.url); if(r.ok) imgs.push(await r.blob())}catch(_){}}}
+    if(qa.length||extra2){ombSet("Claude is folding your answers in…"); const j=await ombMerge(d,qa,extra2,imgs); const c=ombClean(j); if(c.d.address||c.d.name) d=c.d;}
     const full=ombDerive(d);
     const blob=await ombPdf(full,b.photos||[],t=>ombSet(t));
     ombSet("Saving the OM…");

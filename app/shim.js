@@ -346,7 +346,7 @@
   }
   async function ask(mode, input, opts = {}) {
     const images = await stageImages(opts.images);
-    const payload = { mode, input, modelTier: opts.modelTier || "default", model: opts.model || null, effort: opts.effort || null, images };
+    const payload = { mode, input, modelTier: opts.modelTier || "default", model: opts.model || null, effort: opts.effort || null, images, research: !!opts.research };
     const r = await queue("ai", payload, labelFor(input), opts.signal);
     if (mode === "json") return r && Object.prototype.hasOwnProperty.call(r, "value") ? r.value : r;
     const text = r && typeof r.text === "string" ? r.text : typeof r === "string" ? r : JSON.stringify(r);
