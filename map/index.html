@@ -107,6 +107,8 @@ button,input{font:inherit;color:inherit}
 .lock button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--navy);color:#fff;font-weight:700;cursor:pointer}
 .err{color:#c0392b;font-size:13px;min-height:18px;margin-top:8px}
 .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+html.embed .side-tools .search{display:none}
+html.embed .side-tools .fbtn{flex:1;padding:10px 14px}
 </style>
 </head>
 <body>
@@ -201,6 +203,16 @@ if(EMBED){
     if(e.data.type==='desk-listings'){
       const fresh=!DATA; DATA={listings:(e.data.listings||[]).map(l=>({...l})),snapshotAt:e.data.at||new Date().toISOString()};
       if(fresh) start(); else placeAll(false);
+    }
+    if(e.data.type==='desk-search'){
+      $('q').value=String(e.data.q||'');
+      if(!map) return;
+      draw(true);
+      const rows=DATA.listings.filter(passes), placed=rows.filter(l=>l.lat!=null);
+      if(e.data.go&&placed.length===1) focus(placed[0]);
+      else if(e.data.go&&rows.length===1) openCard(rows[0]);
+      toDesk({type:'desk-search-count',q:$('q').value,n:rows.length,placed:placed.length});
+      return;
     }
     if(e.data.type==='desk-focus'){const l=DATA&&DATA.listings.find(x=>x.id===e.data.id); if(l){ if(l.lat!=null) focus(l); else openCard(l); }}
   });
