@@ -1,6 +1,6 @@
 <!doctype html><html><head><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="same-origin"><link rel="icon" href="data:,"><script src="/app/supabase.js"></script><script src="/app/shim.js?v=2026-11-19.5"></script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Deal Desk · Giovanni Vasquez PA</title>
-<meta name="desk-build" content="2026-11-17.cloud7">
+<meta name="desk-build" content="2026-11-20.cloud8">
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: an Apple-style operating desk. Large title, frosted sticky tab bar, an "Ask the desk" voice bar
@@ -2688,6 +2688,7 @@ render();
 .sc-row .meta{grid-column:2}
 .sc-row .actions{grid-column:2;margin-top:4px;align-items:center}
 .sc-why{font-size:13px;color:var(--warn)}
+.sc-row .actions .sc-del{margin-left:auto;color:var(--crimson)}
 @media (max-width:480px){.sc-row{grid-template-columns:minmax(0,1fr)}.sc-left{grid-row:auto;flex-direction:row;gap:12px}.sc-g{width:42px;height:42px;font-size:15px}.sc-row .meta,.sc-row .actions,.sc-err{grid-column:1}}
 @media (prefers-reduced-motion:reduce){.sc-bar i{transition:none}}
 </style>
@@ -2698,7 +2699,7 @@ render();
    Scores are sorted highest first. "Create draft" saves the match and writes the Gmail draft (never sends),
    and only when the property has an asking price and an OM, the buyer has an email and isn't a buyer's broker,
    and the buyer hasn't already been pitched this property. */
-const SC={running:false,done:0,total:0,view:"",show:"ready",busy:new Set(),stop:false,sel:new Set(),err:{},bulk:null,shown:[]};
+const SC={running:false,done:0,total:0,view:"",show:"ready",busy:new Set(),stop:false,sel:new Set(),err:{},bulk:null,shown:[],hidden:null};
 const SC_BATCH=8, SC_PAR=3, SC_MIN=45, SC_PER_BUYER=6;
 const scRuns=()=>S.scores.slice().sort((a,b)=>String(b.at||"").localeCompare(String(a.at||"")));
 function scRun(){const r=scRuns();return (SC.view&&r.find(x=>x.id===SC.view))||r.find(x=>x.status==="done")||r[0]||null}
@@ -2719,13 +2720,15 @@ function scState(h){
   return {b,l,m,kind:why?"blocked":"ready",why};
 }
 function scHits(run){
-  return (Array.isArray(run&&run.hits)?run.hits:[]).map(h=>({...h,st:scState(h)})).filter(h=>h.st)
+  const hid=SC.hidden||new Set();
+  return (Array.isArray(run&&run.hits)?run.hits:[]).filter(h=>!hid.has(h.b+"|"+h.l)).map(h=>({...h,st:scState(h)})).filter(h=>h.st)
     .sort((a,b)=>(b.s-a.s)||String(a.st.b.name).localeCompare(String(b.st.b.name)));
 }
 function scoresCount(){const r=scRun();return r?scHits(r).filter(h=>h.st.kind==="ready").length:0}
 
 function scoresView(query){
   SC.shown=[];
+  if(SC.hidden===null&&db) scLoadHidden();
   const run=scRun(), runs=scRuns(), all=scHits(run);
   const nb=S.buyers.filter(b=>b.status!=="inactive").length, nl=S.listings.filter(l=>(l.status||"active")!=="closed").length;
   const stale=run&&run.status==="running"&&!SC.running&&Date.now()-new Date(run.at).getTime()>15*60e3;
@@ -2748,7 +2751,7 @@ function scoresView(query){
       <button class="chip" data-scf="pitched" aria-pressed="${SC.show==="pitched"}">Already pitched<span class="c">${pitched.length}</span></button>
       ${runs.length>1?`<select id="sc-runpick" aria-label="Which run to show">${runs.map(r=>`<option value="${esc(r.id)}" ${run.id===r.id?"selected":""}>${esc(scWhen(r.at))}${r.status==="done"?"":" (unfinished)"}</option>`).join("")}</select>`:""}
     </div>`:""}
-    ${run&&canWrite&&db?(SC.plan?scPlanPanel():scBulkBar(ready)):""}
+    ${run&&canWrite&&db?(SC.plan?scPlanPanel():scBulkBar(ready,all)):""}
   </section>`;
   const H=()=>head.replace("%%SHOWN%%",String(SC.shown.length));
   if(!run) return H()+`<div class="empty"><strong>No scores yet</strong>Tap Run matching now. It takes a few minutes to score ${nb} buyers against ${nl} properties.</div>`;
@@ -2761,7 +2764,7 @@ function scoresView(query){
   return H()+rows.slice(0,200).map(scRow).join("")+(rows.length>200?`<div class="note">Showing the top 200 of ${rows.length}. Search to narrow it down.</div>`:"");
 }
 function scRow(h){
-  const {b,l,m,kind,why}=h.st, k=h.b+"|"+h.l, busy=SC.busy.has(k), sel=kind==="ready"&&SC.sel.has(k);
+  const {b,l,m,kind,why}=h.st, k=h.b+"|"+h.l, busy=SC.busy.has(k), sel=SC.sel.has(k);
   const cls=h.s>=80?"sc-hi":h.s>=60?"sc-mid":"sc-lo";
   const e=scEmail(b), err=SC.err[k];
   let act="";
@@ -2770,7 +2773,8 @@ function scRow(h){
   else if(kind==="blocked") act=`<button class="btn" type="button" disabled>Create draft</button><span class="sc-why">${esc(why)}</span>`;
   else if(kind==="draft") act=`<a class="btn primary" href="${esc(gSearch(m.ref?`in:draft "Ref ${m.ref}"`:"in:draft to:"+e))}" target="_blank" rel="noopener">Open draft in Gmail</a>${canWrite&&(m.draftId||m.threadId)?`<button class="btn" type="button" data-sc="plan1" data-k="${esc(k)}">Schedule send</button>`:""}`;
   else act=`<span class="pill ${kind==="sent"?"p-sent":"p-passed"}">${kind==="sent"?"Already sent":"Buyer passed"}</span>${e?`<a class="btn" href="${esc(gSearch("to:"+e+" OR from:"+e))}" target="_blank" rel="noopener">Open email thread</a>`:""}`;
-  const pick=canWrite&&db?`<input type="checkbox" class="sc-pick" data-pick="${esc(k)}" ${sel?"checked":""} ${kind!=="ready"||SC.bulk?"disabled":""} aria-label="${kind==="ready"?"Select "+esc(b.name)+" for "+esc(l.address):"Can't be drafted"}">`:"";
+  const pick=canWrite&&db?`<input type="checkbox" class="sc-pick" data-pick="${esc(k)}" ${sel?"checked":""} ${SC.bulk||busy?"disabled":""} aria-label="Select ${esc(b.name)} for ${esc(l.address)}">`:"";
+  if(canWrite&&db) act+=`<button class="btn sc-del" type="button" data-sc="del" data-k="${esc(k)}" ${busy||SC.bulk?"disabled":""} aria-label="Delete ${esc(b.name)} for ${esc(l.address)} from Scores">Delete</button>`;
   return `<article class="sc-row${sel?" sel":""}">
     <div class="sc-left">${pick}<div class="sc-g ${cls}" aria-label="Score ${h.s} out of 100">${h.s}</div></div>
     <h3>${esc(b.name)}<span class="arrow">→</span>${esc(l.address)}</h3>
@@ -2781,14 +2785,15 @@ function scRow(h){
   </article>`;
 }
 /* The bar for picking several scores and drafting them in one go. */
-function scBulkBar(ready){
-  const readyKeys=new Set(ready.map(h=>h.b+"|"+h.l));
-  for(const k of [...SC.sel]) if(!readyKeys.has(k)) SC.sel.delete(k);
-  const n=SC.sel.size;
+function scBulkBar(ready,all){
+  const readyKeys=new Set(ready.map(h=>h.b+"|"+h.l)), allKeys=new Set((all||ready).map(h=>h.b+"|"+h.l));
+  for(const k of [...SC.sel]) if(!allKeys.has(k)) SC.sel.delete(k);
+  const sel=SC.sel.size, n=[...SC.sel].filter(k=>readyKeys.has(k)).length;
   if(SC.bulk){const B=SC.bulk;return `<div class="sc-bulk"><span class="grow">Writing draft <b>${B.i}</b> of <b>${B.n}</b>. <b>${B.ok}</b> done${B.fail?`, <b>${B.fail}</b> failed`:""}. Keep this page open.</span><button class="btn danger" type="button" data-sc="stop">Stop after this one</button></div>`}
-  return `<div class="sc-bulk"><span class="grow"><b>${n}</b> selected</span>
+  return `<div class="sc-bulk"><span class="grow"><b>${sel}</b> selected${sel>n?` (${n} ready to draft)`:""}</span>
     <button class="btn" type="button" data-sc="all">Select all ready (%%SHOWN%%)</button>
-    ${n?`<button class="btn" type="button" data-sc="none">Clear</button>`:""}
+    ${sel?`<button class="btn" type="button" data-sc="none">Clear</button>`:""}
+    <button class="btn danger" type="button" data-sc="delsel" ${sel?"":"disabled"}>${sel?`Delete ${sel}`:"Delete"}</button>
     <button class="btn" type="button" data-sc="plan" ${n?"":"disabled"}>${n?`Schedule ${n}…`:"Schedule…"}</button>
     <button class="btn primary" type="button" data-sc="bulk" ${n?"":"disabled"}>${n?`Create ${n} draft${n>1?"s":""}`:"Create drafts"}</button></div>`;
 }
@@ -2843,6 +2848,7 @@ async function scRunAll(){
           if(!r||!ids.has(r.buyerId)||!lIds.has(r.listingId)||!bIds.has(r.buyerId)||s<SC_MIN) continue;
           if((per[r.buyerId]=(per[r.buyerId]||0)+1)>SC_PER_BUYER) continue;
           if(hits.some(h=>h.b===r.buyerId&&h.l===r.listingId)) continue;
+          if(SC.hidden&&SC.hidden.has(r.buyerId+"|"+r.listingId)) continue;
           hits.push({b:r.buyerId,l:r.listingId,s,w:String(r.why||"").slice(0,220)});
         }
       }
@@ -2917,7 +2923,7 @@ async function scDraft(btn){
 }
 async function scBulk(){
   if(SC.bulk) return;
-  const keys=[...SC.sel]; if(!keys.length) return;
+  const keys=scSelReady(); if(!keys.length){toast("None of the selected scores are ready to draft.");return}
   if(!mcp||!sample){toast("Allow Claude and Gmail for this page to write drafts.");return}
   if(!(await scAllow())){toast("Allow Claude and Gmail for this page, then try again.");return}
   SC.bulk={i:0,n:keys.length,ok:0,fail:0,capped:0,stop:false}; render();
@@ -3006,6 +3012,37 @@ async function scUnschedule(btn){
   catch(e){btn.disabled=false;toast("Couldn't cancel. Try again in a moment.")}
 }
 
+/* ---------- Delete scores ----------
+   Delete takes a buyer → property score off the Scores tab. The pair is saved in config/scores-hidden,
+   so it stays gone in older runs and future runs don't bring it back. It never touches the match record,
+   a Gmail draft or a scheduled send. */
+const scSelReady=()=>{const r=new Set(scHits(scRun()).filter(h=>h.st.kind==="ready").map(h=>h.b+"|"+h.l));return [...SC.sel].filter(k=>r.has(k))};
+async function scLoadHidden(){
+  SC.hidden=new Set();
+  try{const d=await db.doc("config/scores-hidden").get(); const p=d.exists&&d.data()&&d.data().pairs;
+    if(Array.isArray(p)){p.forEach(k=>SC.hidden.add(String(k)));render()}}catch(e){}
+}
+async function scDelete(keys){
+  keys=(keys||[]).filter(Boolean); if(!keys.length||!db) return;
+  const n=keys.length;
+  const one=n===1&&scState({b:keys[0].split("|")[0],l:keys[0].split("|")[1]});
+  const what=one?`${one.b.name} → ${one.l.address}`:`${n} scores`;
+  if(!window.confirm(`Delete ${what} from Scores?\n\nIt won't come back in future matching runs. Matches, Gmail drafts and scheduled sends are not touched.`)) return;
+  if(SC.hidden===null) await scLoadHidden();
+  const before=new Set(SC.hidden);
+  keys.forEach(k=>{SC.hidden.add(k);SC.sel.delete(k);delete SC.err[k]});
+  render();
+  try{
+    await db.doc("config/scores-hidden").set({pairs:[...SC.hidden],updated:new Date().toISOString()});
+    const run=scRun();
+    if(run&&Array.isArray(run.hits)){
+      const gone=new Set(keys), hits=run.hits.filter(h=>!gone.has(h.b+"|"+h.l));
+      if(hits.length!==run.hits.length) await db.doc("scores/"+run.id).update({hits});
+    }
+    toast(n===1?"Score deleted":`${n} scores deleted`);
+  }catch(e){SC.hidden=before;render();toast("Couldn't delete. Try again in a moment.")}
+}
+
 $("list").addEventListener("click",e=>{
   const f=e.target.closest("[data-scf]"); if(f){SC.show=f.dataset.scf;render();return}
   const b=e.target.closest("[data-sc]"); if(!b) return;
@@ -3016,7 +3053,9 @@ $("list").addEventListener("click",e=>{
   else if(a==="none"){SC.sel.clear();render()}
   else if(a==="bulk") scBulk();
   else if(a==="stop"&&SC.bulk){SC.bulk.stop=true;b.disabled=true;b.textContent="Stopping…"}
-  else if(a==="plan"){if(SC.sel.size){SC.plan={keys:[...SC.sel],fromDraft:false};render();scCheckSender()}}
+  else if(a==="plan"){const ks=scSelReady(); if(ks.length){SC.plan={keys:ks,fromDraft:false};render();scCheckSender()}else toast("None of the selected scores are ready to draft.")}
+  else if(a==="del") scDelete([b.dataset.k]);
+  else if(a==="delsel") scDelete([...SC.sel]);
   else if(a==="plan1"){const st=scState({b:b.dataset.k.split("|")[0],l:b.dataset.k.split("|")[1]});SC.plan={keys:[b.dataset.k],fromDraft:!!(st&&st.kind==="draft")};render();scCheckSender();try{document.querySelector(".sc-head").scrollIntoView({behavior:"smooth",block:"start"})}catch(_){}}
   else if(a==="schedgo") scSchedule();
   else if(a==="schedcancel"){SC.plan=null;render()}
@@ -3034,8 +3073,8 @@ $("list").addEventListener("change",e=>{
 });
 function scRefreshBar(){
   const bar=document.querySelector(".sc-bulk"); if(!bar) return render();
-  const ready=scHits(scRun()).filter(h=>h.st.kind==="ready");
-  bar.outerHTML=scBulkBar(ready).replace("%%SHOWN%%",String(SC.shown.length));
+  const all=scHits(scRun()), ready=all.filter(h=>h.st.kind==="ready");
+  bar.outerHTML=scBulkBar(ready,all).replace("%%SHOWN%%",String(SC.shown.length));
   $("n-scores").textContent=ready.length||"";
 }
 render();
